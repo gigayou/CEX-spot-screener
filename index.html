@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Binance Spot EMA Screener</title>
+<style>
+/* ── Reset & base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: #0b0e11; color: #eaecef; line-height: 1.5;
+  padding: 20px; max-width: 1400px; margin: 0 auto;
+}
+h1 { font-size: 1.4rem; margin-bottom: 16px; color: #f0b90b; }
+
+/* ── Form panel ── */
+.panel {
+  background: #1e2329; border-radius: 8px; padding: 20px; margin-bottom: 20px;
+}
+.form-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+.form-group label { display: block; font-size: .85rem; color: #848e9c; margin-bottom: 6px; }
+.checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.checkbox-group label {
+  background: #2b3139; padding: 4px 12px; border-radius: 4px;
+  cursor: pointer; font-size: .85rem; user-select: none;
+  border: 1px solid transparent; transition: .15s;
+}
+.checkbox-group label:hover { border-color: #f0b90b; }
+.checkbox-group input[type="checkbox"] { margin-right: 4px; accent-color: #f0b90b; }
+.checkbox-group input[type="checkbox"]:checked + span { color: #f0b90b; }
+
+select, input[type="number"] {
+  background: #2b3139; color: #eaecef; border: 1px solid #363c45;
+  border-radius: 4px; padding: 6px 10px; font-size: .85rem; width: 100%;
+}
+select:focus, input:focus { outline: none; border-color: #f0b90b; }
+
+/* ── Buttons ── */
+.btn-row { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+.btn {
+  padding: 8px 24px; border: none; border-radius: 4px; font-size: .9rem;
+  cursor: pointer; font-weight: 600; transition: .15s;
+}
+.btn-primary { background: #f0b90b; color: #0b0e11; }
+.btn-primary:hover { background: #d4a30a; }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+.btn-secondary { background: #2b3139; color: #eaecef; border: 1px solid #363c45; }
+.btn-secondary:hover { border-color: #f0b90b; }
+
+/* ── Status ── */
+.status {
+  margin-bottom: 12px; padding: 10px 16px; border-radius: 6px;
+  font-size: .85rem; display: none;
+}
+.status.loading { display: block; background: #1e2329; color: #f0b90b; }
+.status.done    { display: block; background: #1e2329; color: #2ebd85; }
+.status.error   { display: block; background: #1e2329; color: #f6465d; }
+
+/* ── Spinner ── */
+.spinner {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid #f0b90b33; border-top-color: #f0b90b;
+  border-radius: 50%; animation: spin .6s linear infinite;
+  vertical-align: middle; margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Progress ── */
+.progress-bar {
+  width: 100%; height: 4px; background: #2b3139; border-radius: 2px;
+  margin-top: 8px; overflow: hidden; display: none;
+}
+.progress-bar.active { display: block; }
+.progress-fill {
+  height: 100%; background: #f0b90b; border-radius: 2px;
+  transition: width 0.3s;
+}
+
+/* ── Table ── */
+.table-wrap { overflow-x: auto; }
+table {
+  width: 100%; border-collapse: collapse; font-size: .82rem;
+  background: #1e2329; border-radius: 8px; overflow: hidden;
+}
+thead th {
+  background: #2b3139; color: #848e9c; font-weight: 600;
+  padding: 10px 12px; text-align: left; white-space: nowrap;
+  position: sticky; top: 0;
+}
+tbody td { padding: 8px 12px; border-top: 1px solid #2b3139; vertical-align: top; }
+tbody tr:hover { background: #2b313955; }
+
+.above-true  { color: #2ebd85; font-weight: 600; }
+.above-false { color: #f6465d; }
+.ema-detail  { font-size: .78rem; line-height: 1.6; }
+.ema-detail div { white-space: nowrap; }
+.vol { color: #f0b90b; font-weight: 600; }
+.rank { color: #848e9c; text-align: center; }
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  .form-grid { grid-template-columns: 1fr; }
+  table { font-size: .75rem; }
+}
+</style>
+</head>
+<body>
+
+<h1>Binance Spot EMA Screener</h1>
+
+<!-- ── Filter panel ── -->
+<div class="panel">
+  <div class="form-grid">
+    <div class="form-group">
+      <label>Time Periods</label>
+      <div class="checkbox-group" id="tf-group">
+        <label><input type="checkbox" name="tf" value="4h"><span>4H</span></label>
+        <label><input type="checkbox" name="tf" value="12h"><span>12H</span></label>
+        <label><input type="checkbox" name="tf" value="1d" checked><span>1D</span></label>
+        <label><input type="checkbox" name="tf" value="3d"><span>3D</span></label>
+        <label><input type="checkbox" name="tf" value="1w"><span>1W</span></label>
+        <label><input type="checkbox" name="tf" value="1M"><span>1M</span></label>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>EMA Conditions</label>
+      <div class="checkbox-group" id="ema-group">
+        <label><input type="checkbox" name="ema" value="3"><span>EMA3</span></label>
+        <label><input type="checkbox" name="ema" value="7"><span>EMA7</span></label>
+        <label><input type="checkbox" name="ema" value="21" checked><span>EMA21</span></label>
+        <label><input type="checkbox" name="ema" value="51"><span>EMA51</span></label>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Match Mode</label>
+      <select id="mode-select">
+        <option value="all" selected>All periods match (ALL)</option>
+        <option value="any">Any period matches (ANY)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Scan Range (by volume)</label>
+      <select id="topn-select">
+        <option value="50">Top 50</option>
+        <option value="100">Top 100</option>
+        <option value="200">Top 200</option>
+        <option value="0" selected>All</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-primary" id="btn-scan">Start Scan</button>
+    <button class="btn btn-secondary" id="btn-reset">Reset</button>
+    <button class="btn btn-secondary" id="btn-csv" style="display:none;">Export CSV</button>
+  </div>
+</div>
+
+<!-- ── Status ── -->
+<div class="status" id="status"></div>
+<div class="progress-bar" id="progress"><div class="progress-fill" id="progress-fill"></div></div>
+
+<!-- ── Results ── -->
+<div class="table-wrap">
+  <table id="result-table" style="display:none;">
+    <thead id="result-head"></thead>
+    <tbody id="result-body"></tbody>
+  </table>
+</div>
+
+<script>
+const BINANCE = 'https://api.binance.com';
+const CONCURRENCY = 8;
+
+/* ── Stablecoins to exclude ── */
+const STABLECOINS = new Set([
+  'USDC', 'BUSD', 'TUSD', 'USDP', 'DAI', 'FDUSD', 'PYUSD', 'USD1',
+  'USDD', 'GUSD', 'SUSD', 'FRAX', 'LUSD', 'CRVUSD', 'GHO', 'USDB',
+  'USDJ', 'USTC', 'EURC', 'EURT', 'AEUR',
+]);
+
+/* ── helpers ── */
+function getChecked(name) {
+  return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(c => c.value);
+}
+function fmtVol(v) {
+  if (v >= 1e9) return (v / 1e9).toFixed(2) + ' B';
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + ' M';
+  if (v >= 1e3) return (v / 1e3).toFixed(2) + ' K';
+  return v.toFixed(2);
+}
+function fmtPrice(p) {
+  if (p === null || p === undefined) return '-';
+  if (p >= 1) return p.toFixed(2);
+  if (p >= 0.01) return p.toFixed(4);
+  return p.toPrecision(4);
+}
+function setStatus(cls, html) {
+  const el = document.getElementById('status');
+  el.className = 'status ' + cls;
+  el.innerHTML = html;
+}
+function setProgress(pct) {
+  const bar = document.getElementById('progress');
+  const fill = document.getElementById('progress-fill');
+  bar.className = 'progress-bar' + (pct < 100 ? ' active' : '');
+  fill.style.width = pct + '%';
+}
+
+/* ── EMA calculation ── */
+function calcEma(closes, period) {
+  if (closes.length < period) return null;
+  const k = 2 / (period + 1);
+  let ema = closes[0];
+  for (let i = 1; i < closes.length; i++) {
+    ema = closes[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+/* ── Binance API ── */
+async function fetchJson(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+async function getUsdtSymbols() {
+  const data = await fetchJson(`${BINANCE}/api/v3/exchangeInfo`);
+  return data.symbols
+    .filter(s => s.quoteAsset === 'USDT' && s.status === 'TRADING' && s.isSpotTradingAllowed
+      && !STABLECOINS.has(s.baseAsset))
+    .map(s => s.symbol);
+}
+
+async function get24hTickers() {
+  const data = await fetchJson(`${BINANCE}/api/v3/ticker/24hr`);
+  const map = {};
+  for (const t of data) {
+    const v = parseFloat(t.quoteVolume);
+    if (!isNaN(v)) map[t.symbol] = v;
+  }
+  return map;
+}
+
+async function getKlines(symbol, interval, limit = 80) {
+  return fetchJson(`${BINANCE}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+}
+
+/* ── Concurrent scanner with pool ── */
+async function runPool(tasks, concurrency, onProgress) {
+  const results = [];
+  let idx = 0, done = 0;
+  const total = tasks.length;
+
+  async function next() {
+    while (idx < total) {
+      const i = idx++;
+      try { results.push(await tasks[i]()); } catch {}
+      done++;
+      if (onProgress) onProgress(done, total);
+    }
+  }
+
+  const workers = [];
+  for (let i = 0; i < Math.min(concurrency, total); i++) workers.push(next());
+  await Promise.all(workers);
+  return results;
+}
+
+/* ── Per-symbol scan ── */
+async function scanSymbol(symbol, timeframes, emaPeriods) {
+  const tfResults = {};
+  for (const tf of timeframes) {
+    try {
+      const klines = await getKlines(symbol, tf);
+      const closes = klines.map(k => parseFloat(k[4]));
+      if (!closes.length) { tfResults[tf] = { match: false }; continue; }
+      const close = closes[closes.length - 1];
+      const result = { close, emas: {}, above: {} };
+      let allAbove = true;
+      for (const p of emaPeriods) {
+        const ema = calcEma(closes, p);
+        result.emas[`EMA${p}`] = ema;
+        const above = ema !== null && close > ema;
+        result.above[`EMA${p}`] = above;
+        if (!above) allAbove = false;
+      }
+      result.match = allAbove;
+      tfResults[tf] = result;
+    } catch (e) {
+      tfResults[tf] = { match: false, error: e.message };
+    }
+  }
+  return tfResults;
+}
+
+/* ── Main scan ── */
+let lastScan = null;
+let scanning = false;
+
+document.getElementById('btn-scan').addEventListener('click', async () => {
+  if (scanning) return;
+  const timeframes = getChecked('tf');
+  const emaPeriods = getChecked('ema').map(Number);
+  const mode = document.getElementById('mode-select').value;
+  const topN = parseInt(document.getElementById('topn-select').value, 10);
+
+  if (!timeframes.length) { alert('Please select at least one time period'); return; }
+  if (!emaPeriods.length) { alert('Please select at least one EMA condition'); return; }
+
+  scanning = true;
+  const btn = document.getElementById('btn-scan');
+  btn.disabled = true;
+  document.getElementById('btn-csv').style.display = 'none';
+  document.getElementById('result-table').style.display = 'none';
+
+  const t0 = performance.now();
+
+  try {
+    setStatus('loading', '<span class="spinner"></span>Fetching symbol list & 24h tickers...');
+    const [allSymbols, tickers] = await Promise.all([getUsdtSymbols(), get24hTickers()]);
+
+    const symbolSet = new Set(allSymbols);
+    let ranked = Object.entries(tickers)
+      .filter(([sym]) => symbolSet.has(sym))
+      .sort((a, b) => b[1] - a[1]);
+
+    if (topN > 0) ranked = ranked.slice(0, topN);
+
+    setStatus('loading',
+      `<span class="spinner"></span>Scanning ${ranked.length} symbols (${CONCURRENCY} parallel)...`);
+    setProgress(0);
+
+    const output = [];
+    const tasks = ranked.map(([sym, vol]) => async () => {
+      const tfResults = await scanSymbol(sym, timeframes, emaPeriods);
+      const tfMatches = timeframes.map(tf => (tfResults[tf] && tfResults[tf].match) || false);
+      const passed = mode === 'all' ? tfMatches.every(Boolean) : tfMatches.some(Boolean);
+      if (passed) output.push({ symbol: sym, quoteVolume: vol, timeframes: tfResults });
+    });
+
+    await runPool(tasks, CONCURRENCY, (done, total) => {
+      setProgress(Math.round(done / total * 100));
+      setStatus('loading',
+        `<span class="spinner"></span>Scanning... ${done}/${total}`);
+    });
+
+    output.sort((a, b) => b.quoteVolume - a.quoteVolume);
+
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+    const emaLabels = emaPeriods.map(p => `EMA${p}`);
+    lastScan = { timeframes, emas: emaLabels, data: { results: output, total_scanned: ranked.length, total_matched: output.length, elapsed } };
+
+    setStatus('done',
+      `Done! Scanned <b>${ranked.length}</b> pairs, matched <b>${output.length}</b>, took <b>${elapsed}s</b>`);
+    setProgress(100);
+
+    renderTable(output, timeframes, emaLabels);
+  } catch (e) {
+    setStatus('error', 'Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    scanning = false;
+  }
+});
+
+/* ── TF display names ── */
+const TF_LABELS = { '4h': '4H', '12h': '12H', '1d': '1D', '3d': '3D', '1w': '1W', '1M': '1M' };
+
+/* ── render table ── */
+function renderTable(results, timeframes, emas) {
+  const table = document.getElementById('result-table');
+  const thead = document.getElementById('result-head');
+  const tbody = document.getElementById('result-body');
+
+  let hdr = '<tr><th>#</th><th>Symbol</th><th>24h Volume (USDT)</th>';
+  timeframes.forEach(tf => { hdr += `<th>${TF_LABELS[tf] || tf}</th>`; });
+  hdr += '</tr>';
+  thead.innerHTML = hdr;
+
+  let rows = '';
+  results.forEach((r, i) => {
+    rows += '<tr>';
+    rows += `<td class="rank">${i + 1}</td>`;
+    rows += `<td><b>${r.symbol}</b></td>`;
+    rows += `<td class="vol">${fmtVol(r.quoteVolume)}</td>`;
+
+    timeframes.forEach(tf => {
+      const d = r.timeframes[tf];
+      if (!d || d.error) { rows += '<td class="above-false">error</td>'; return; }
+      let cell = '<div class="ema-detail">';
+      cell += `<div>Close: <b>${fmtPrice(d.close)}</b></div>`;
+      emas.forEach(ek => {
+        const val = d.emas[ek];
+        const above = d.above[ek];
+        const cls = above ? 'above-true' : 'above-false';
+        const icon = above ? '&check;' : '&cross;';
+        cell += `<div class="${cls}">${ek}: ${fmtPrice(val)} ${icon}</div>`;
+      });
+      cell += '</div>';
+      rows += `<td>${cell}</td>`;
+    });
+    rows += '</tr>';
+  });
+
+  tbody.innerHTML = rows || '<tr><td colspan="99" style="text-align:center;padding:20px;color:#848e9c;">No matching pairs found</td></tr>';
+  table.style.display = 'table';
+
+  if (results.length) document.getElementById('btn-csv').style.display = 'inline-block';
+}
+
+/* ── reset ── */
+document.getElementById('btn-reset').addEventListener('click', () => {
+  document.querySelectorAll('input[name="tf"]').forEach(c => c.checked = c.value === '1d');
+  document.querySelectorAll('input[name="ema"]').forEach(c => c.checked = c.value === '21');
+  document.getElementById('mode-select').value = 'all';
+  document.getElementById('topn-select').value = '0';
+  document.getElementById('status').className = 'status';
+  document.getElementById('progress').className = 'progress-bar';
+  document.getElementById('result-table').style.display = 'none';
+  document.getElementById('btn-csv').style.display = 'none';
+  lastScan = null;
+});
+
+/* ── CSV export ── */
+document.getElementById('btn-csv').addEventListener('click', () => {
+  if (!lastScan) return;
+  const { timeframes, emas, data } = lastScan;
+  const csvRows = [];
+
+  const hdr = ['Rank', 'Symbol', '24h_Volume_USDT'];
+  timeframes.forEach(tf => {
+    const label = TF_LABELS[tf] || tf;
+    hdr.push(`${label}_close`);
+    emas.forEach(ek => { hdr.push(`${label}_${ek}`); hdr.push(`${label}_above_${ek}`); });
+    hdr.push(`${label}_match`);
+  });
+  csvRows.push(hdr.join(','));
+
+  data.results.forEach((r, i) => {
+    const row = [i + 1, r.symbol, r.quoteVolume];
+    timeframes.forEach(tf => {
+      const d = r.timeframes[tf];
+      if (!d || d.error) { row.push('', ...emas.flatMap(() => ['', '']), ''); return; }
+      row.push(d.close);
+      emas.forEach(ek => { row.push(d.emas[ek] ?? ''); row.push(d.above[ek] ?? ''); });
+      row.push(d.match);
+    });
+    csvRows.push(row.join(','));
+  });
+
+  const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `ema_scan_${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.csv`;
+  a.click();
+});
+</script>
+</body>
+</html>
