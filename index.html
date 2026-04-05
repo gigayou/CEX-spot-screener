@@ -159,6 +159,18 @@ thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
         <option value="0" selected>All</option>
       </select>
     </div>
+
+    <div class="form-group">
+      <label>Listing Date Filter</label>
+      <select id="listing-filter">
+        <option value="0" selected>All</option>
+        <option value="7">Last 7 days</option>
+        <option value="30">Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="180">Last 180 days</option>
+        <option value="365">Last 1 year</option>
+      </select>
+    </div>
   </div>
 
   <div class="btn-row">
@@ -259,6 +271,12 @@ async function getKlines(symbol, interval, limit = 80) {
   return fetchJson(`${BINANCE}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
 }
 
+async function getListingDate(symbol) {
+  const klines = await fetchJson(`${BINANCE}/api/v3/klines?symbol=${symbol}&interval=1d&startTime=0&limit=1`);
+  if (klines && klines.length) return klines[0][0];
+  return null;
+}
+
 /* ── Concurrent scanner with pool ── */
 async function runPool(tasks, concurrency, onProgress) {
   const results = [];
@@ -284,7 +302,9 @@ async function runPool(tasks, concurrency, onProgress) {
 async function scanSymbol(symbol, timeframes, emaPeriods) {
   const tfResults = {};
   let chg7d = null;
-  const need1dFor7d = !timeframes.includes('1d');
+  let chg30d = null;
+  let listingDate = null;
+  const need1dForChg = !timeframes.includes('1d');
 
   for (const tf of timeframes) {
     try {
@@ -304,28 +324,42 @@ async function scanSymbol(symbol, timeframes, emaPeriods) {
       result.match = allAbove;
       tfResults[tf] = result;
 
-      if (tf === '1d' && closes.length >= 7) {
-        const close7dAgo = closes[closes.length - 7];
-        chg7d = (close - close7dAgo) / close7dAgo * 100;
+      if (tf === '1d') {
+        if (closes.length >= 7) {
+          const close7dAgo = closes[closes.length - 7];
+          chg7d = (close - close7dAgo) / close7dAgo * 100;
+        }
+        if (closes.length >= 30) {
+          const close30dAgo = closes[closes.length - 30];
+          chg30d = (close - close30dAgo) / close30dAgo * 100;
+        }
       }
     } catch (e) {
       tfResults[tf] = { match: false, error: e.message };
     }
   }
 
-  if (need1dFor7d) {
+  if (need1dForChg) {
     try {
-      const klines = await getKlines(symbol, '1d', 8);
+      const klines = await getKlines(symbol, '1d', 31);
       const closes = klines.map(k => parseFloat(k[4]));
+      const close = closes[closes.length - 1];
       if (closes.length >= 7) {
-        const close = closes[closes.length - 1];
         const close7dAgo = closes[closes.length - 7];
         chg7d = (close - close7dAgo) / close7dAgo * 100;
+      }
+      if (closes.length >= 30) {
+        const close30dAgo = closes[closes.length - 30];
+        chg30d = (close - close30dAgo) / close30dAgo * 100;
       }
     } catch {}
   }
 
-  return { tfResults, chg7d };
+  try {
+    listingDate = await getListingDate(symbol);
+  } catch {}
+
+  return { tfResults, chg7d, chg30d, listingDate };
 }
 
 /* ── Main scan ── */
@@ -338,6 +372,7 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
   const emaPeriods = getChecked('ema').map(Number);
   const mode = document.getElementById('mode-select').value;
   const topN = parseInt(document.getElementById('topn-select').value, 10);
+  const listingFilterDays = parseInt(document.getElementById('listing-filter').value, 10);
 
   if (!timeframes.length) { alert('Please select at least one time period'); return; }
   if (!emaPeriods.length) { alert('Please select at least one EMA condition'); return; }
@@ -365,12 +400,18 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
       `<span class="spinner"></span>Scanning ${ranked.length} symbols (${CONCURRENCY} parallel)...`);
     setProgress(0);
 
+    const now = Date.now();
     const output = [];
     const tasks = ranked.map(([sym, tickerData]) => async () => {
-      const { tfResults, chg7d } = await scanSymbol(sym, timeframes, emaPeriods);
+      const { tfResults, chg7d, chg30d, listingDate } = await scanSymbol(sym, timeframes, emaPeriods);
       const tfMatches = timeframes.map(tf => (tfResults[tf] && tfResults[tf].match) || false);
       const passed = mode === 'all' ? tfMatches.every(Boolean) : tfMatches.some(Boolean);
-      if (passed) output.push({ symbol: sym, quoteVolume: tickerData.vol, chg24h: tickerData.chg24h, chg7d, timeframes: tfResults });
+      if (!passed) return;
+      if (listingFilterDays > 0 && listingDate) {
+        const daysSinceListing = (now - listingDate) / (1000 * 60 * 60 * 24);
+        if (daysSinceListing > listingFilterDays) return;
+      }
+      output.push({ symbol: sym, quoteVolume: tickerData.vol, chg24h: tickerData.chg24h, chg7d, chg30d, listingDate, timeframes: tfResults });
     });
 
     await runPool(tasks, CONCURRENCY, (done, total) => {
@@ -414,12 +455,20 @@ function fmtChg(v) {
   return sign + v.toFixed(2) + '%';
 }
 
+function fmtDate(ts) {
+  if (!ts) return '-';
+  const d = new Date(ts);
+  return d.toISOString().slice(0, 10);
+}
+
 function getSortValue(r, col) {
   if (col === 'rank') return 0;
   if (col === 'symbol') return r.symbol;
   if (col === 'volume') return r.quoteVolume;
   if (col === 'chg24h') return r.chg24h ?? -Infinity;
   if (col === 'chg7d') return r.chg7d ?? -Infinity;
+  if (col === 'chg30d') return r.chg30d ?? -Infinity;
+  if (col === 'listingDate') return r.listingDate ?? 0;
   // timeframe columns — sort by number of matched EMAs
   const d = r.timeframes[col];
   if (!d || d.error) return -1;
@@ -455,6 +504,8 @@ function renderTableHeader() {
     { key: 'volume', label: '24h Volume (USDT)' },
     { key: 'chg24h', label: '24H Chg%' },
     { key: 'chg7d', label: '7D Chg%' },
+    { key: 'chg30d', label: '30D Chg%' },
+    { key: 'listingDate', label: 'Listing Date' },
   ];
   currentTimeframes.forEach(tf => {
     cols.push({ key: tf, label: TF_LABELS[tf] || tf });
@@ -487,6 +538,9 @@ function renderTableContent() {
     rows += `<td class="${chg24hCls}">${fmtChg(r.chg24h)}</td>`;
     const chg7dCls = (r.chg7d ?? 0) >= 0 ? 'chg-pos' : 'chg-neg';
     rows += `<td class="${chg7dCls}">${fmtChg(r.chg7d)}</td>`;
+    const chg30dCls = (r.chg30d ?? 0) >= 0 ? 'chg-pos' : 'chg-neg';
+    rows += `<td class="${chg30dCls}">${fmtChg(r.chg30d)}</td>`;
+    rows += `<td>${fmtDate(r.listingDate)}</td>`;
 
     currentTimeframes.forEach(tf => {
       const d = r.timeframes[tf];
@@ -530,6 +584,7 @@ document.getElementById('btn-reset').addEventListener('click', () => {
   document.querySelectorAll('input[name="ema"]').forEach(c => c.checked = c.value === '21');
   document.getElementById('mode-select').value = 'all';
   document.getElementById('topn-select').value = '0';
+  document.getElementById('listing-filter').value = '0';
   document.getElementById('status').className = 'status';
   document.getElementById('progress').className = 'progress-bar';
   document.getElementById('result-table').style.display = 'none';
@@ -543,7 +598,7 @@ document.getElementById('btn-csv').addEventListener('click', () => {
   const { timeframes, emas, data } = lastScan;
   const csvRows = [];
 
-  const hdr = ['Rank', 'Symbol', '24h_Volume_USDT', '24H_Change_Pct', '7D_Change_Pct'];
+  const hdr = ['Rank', 'Symbol', '24h_Volume_USDT', '24H_Change_Pct', '7D_Change_Pct', '30D_Change_Pct', 'Listing_Date'];
   timeframes.forEach(tf => {
     const label = TF_LABELS[tf] || tf;
     hdr.push(`${label}_close`);
@@ -553,7 +608,7 @@ document.getElementById('btn-csv').addEventListener('click', () => {
   csvRows.push(hdr.join(','));
 
   data.results.forEach((r, i) => {
-    const row = [i + 1, r.symbol, r.quoteVolume, r.chg24h ?? '', r.chg7d !== null ? r.chg7d.toFixed(2) : ''];
+    const row = [i + 1, r.symbol, r.quoteVolume, r.chg24h ?? '', r.chg7d !== null ? r.chg7d.toFixed(2) : '', r.chg30d !== null ? r.chg30d.toFixed(2) : '', r.listingDate ? fmtDate(r.listingDate) : ''];
     timeframes.forEach(tf => {
       const d = r.timeframes[tf];
       if (!d || d.error) { row.push('', ...emas.flatMap(() => ['', '']), ''); return; }
