@@ -100,6 +100,11 @@ tbody tr:hover { background: #2b313955; }
 .ema-detail div { white-space: nowrap; }
 .vol { color: #f0b90b; font-weight: 600; }
 .rank { color: #848e9c; text-align: center; }
+.chg-pos { color: #2ebd85; font-weight: 600; }
+.chg-neg { color: #f6465d; font-weight: 600; }
+thead th.sortable { cursor: pointer; user-select: none; }
+thead th.sortable:hover { color: #f0b90b; }
+thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
 
 /* ── Responsive ── */
 @media (max-width: 640px) {
@@ -245,7 +250,7 @@ async function get24hTickers() {
   const map = {};
   for (const t of data) {
     const v = parseFloat(t.quoteVolume);
-    if (!isNaN(v)) map[t.symbol] = v;
+    if (!isNaN(v)) map[t.symbol] = { vol: v, chg24h: parseFloat(t.priceChangePercent) || 0 };
   }
   return map;
 }
@@ -278,6 +283,9 @@ async function runPool(tasks, concurrency, onProgress) {
 /* ── Per-symbol scan ── */
 async function scanSymbol(symbol, timeframes, emaPeriods) {
   const tfResults = {};
+  let chg7d = null;
+  const need1dFor7d = !timeframes.includes('1d');
+
   for (const tf of timeframes) {
     try {
       const klines = await getKlines(symbol, tf);
@@ -295,11 +303,29 @@ async function scanSymbol(symbol, timeframes, emaPeriods) {
       }
       result.match = allAbove;
       tfResults[tf] = result;
+
+      if (tf === '1d' && closes.length >= 7) {
+        const close7dAgo = closes[closes.length - 7];
+        chg7d = (close - close7dAgo) / close7dAgo * 100;
+      }
     } catch (e) {
       tfResults[tf] = { match: false, error: e.message };
     }
   }
-  return tfResults;
+
+  if (need1dFor7d) {
+    try {
+      const klines = await getKlines(symbol, '1d', 8);
+      const closes = klines.map(k => parseFloat(k[4]));
+      if (closes.length >= 7) {
+        const close = closes[closes.length - 1];
+        const close7dAgo = closes[closes.length - 7];
+        chg7d = (close - close7dAgo) / close7dAgo * 100;
+      }
+    } catch {}
+  }
+
+  return { tfResults, chg7d };
 }
 
 /* ── Main scan ── */
@@ -331,7 +357,7 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
     const symbolSet = new Set(allSymbols);
     let ranked = Object.entries(tickers)
       .filter(([sym]) => symbolSet.has(sym))
-      .sort((a, b) => b[1] - a[1]);
+      .sort((a, b) => b[1].vol - a[1].vol);
 
     if (topN > 0) ranked = ranked.slice(0, topN);
 
@@ -340,11 +366,11 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
     setProgress(0);
 
     const output = [];
-    const tasks = ranked.map(([sym, vol]) => async () => {
-      const tfResults = await scanSymbol(sym, timeframes, emaPeriods);
+    const tasks = ranked.map(([sym, tickerData]) => async () => {
+      const { tfResults, chg7d } = await scanSymbol(sym, timeframes, emaPeriods);
       const tfMatches = timeframes.map(tf => (tfResults[tf] && tfResults[tf].match) || false);
       const passed = mode === 'all' ? tfMatches.every(Boolean) : tfMatches.some(Boolean);
-      if (passed) output.push({ symbol: sym, quoteVolume: vol, timeframes: tfResults });
+      if (passed) output.push({ symbol: sym, quoteVolume: tickerData.vol, chg24h: tickerData.chg24h, chg7d, timeframes: tfResults });
     });
 
     await runPool(tasks, CONCURRENCY, (done, total) => {
@@ -375,30 +401,99 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
 /* ── TF display names ── */
 const TF_LABELS = { '4h': '4H', '12h': '12H', '1d': '1D', '3d': '3D', '1w': '1W', '1M': '1M' };
 
-/* ── render table ── */
-function renderTable(results, timeframes, emas) {
-  const table = document.getElementById('result-table');
-  const thead = document.getElementById('result-head');
-  const tbody = document.getElementById('result-body');
+/* ── Sort state ── */
+let sortCol = null;
+let sortDir = 'desc';
+let currentResults = [];
+let currentTimeframes = [];
+let currentEmas = [];
 
-  let hdr = '<tr><th>#</th><th>Symbol</th><th>24h Volume (USDT)</th>';
-  timeframes.forEach(tf => { hdr += `<th>${TF_LABELS[tf] || tf}</th>`; });
+function fmtChg(v) {
+  if (v === null || v === undefined || isNaN(v)) return '-';
+  const sign = v >= 0 ? '+' : '';
+  return sign + v.toFixed(2) + '%';
+}
+
+function getSortValue(r, col) {
+  if (col === 'rank') return 0;
+  if (col === 'symbol') return r.symbol;
+  if (col === 'volume') return r.quoteVolume;
+  if (col === 'chg24h') return r.chg24h ?? -Infinity;
+  if (col === 'chg7d') return r.chg7d ?? -Infinity;
+  // timeframe columns — sort by number of matched EMAs
+  const d = r.timeframes[col];
+  if (!d || d.error) return -1;
+  const matched = Object.values(d.above || {}).filter(Boolean).length;
+  return matched;
+}
+
+function doSort(col) {
+  if (col === 'rank') { sortCol = null; sortDir = 'desc'; }
+  else if (sortCol === col) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
+  else { sortCol = col; sortDir = col === 'symbol' ? 'asc' : 'desc'; }
+
+  if (sortCol) {
+    currentResults.sort((a, b) => {
+      let va = getSortValue(a, sortCol), vb = getSortValue(b, sortCol);
+      if (typeof va === 'string') {
+        const cmp = va.localeCompare(vb);
+        return sortDir === 'asc' ? cmp : -cmp;
+      }
+      return sortDir === 'asc' ? va - vb : vb - va;
+    });
+  } else {
+    currentResults.sort((a, b) => b.quoteVolume - a.quoteVolume);
+  }
+  renderTableContent();
+}
+
+function renderTableHeader() {
+  const thead = document.getElementById('result-head');
+  const cols = [
+    { key: 'rank', label: '#' },
+    { key: 'symbol', label: 'Symbol' },
+    { key: 'volume', label: '24h Volume (USDT)' },
+    { key: 'chg24h', label: '24H Chg%' },
+    { key: 'chg7d', label: '7D Chg%' },
+  ];
+  currentTimeframes.forEach(tf => {
+    cols.push({ key: tf, label: TF_LABELS[tf] || tf });
+  });
+
+  let hdr = '<tr>';
+  cols.forEach(c => {
+    const arrow = sortCol === c.key ? `<span class="sort-arrow">${sortDir === 'asc' ? '▲' : '▼'}</span>` : '';
+    hdr += `<th class="sortable" data-col="${c.key}">${c.label}${arrow}</th>`;
+  });
   hdr += '</tr>';
   thead.innerHTML = hdr;
 
+  thead.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', () => doSort(th.dataset.col));
+  });
+}
+
+function renderTableContent() {
+  const tbody = document.getElementById('result-body');
+  renderTableHeader();
+
   let rows = '';
-  results.forEach((r, i) => {
+  currentResults.forEach((r, i) => {
     rows += '<tr>';
     rows += `<td class="rank">${i + 1}</td>`;
     rows += `<td><b>${r.symbol}</b></td>`;
     rows += `<td class="vol">${fmtVol(r.quoteVolume)}</td>`;
+    const chg24hCls = (r.chg24h ?? 0) >= 0 ? 'chg-pos' : 'chg-neg';
+    rows += `<td class="${chg24hCls}">${fmtChg(r.chg24h)}</td>`;
+    const chg7dCls = (r.chg7d ?? 0) >= 0 ? 'chg-pos' : 'chg-neg';
+    rows += `<td class="${chg7dCls}">${fmtChg(r.chg7d)}</td>`;
 
-    timeframes.forEach(tf => {
+    currentTimeframes.forEach(tf => {
       const d = r.timeframes[tf];
       if (!d || d.error) { rows += '<td class="above-false">error</td>'; return; }
       let cell = '<div class="ema-detail">';
       cell += `<div>Close: <b>${fmtPrice(d.close)}</b></div>`;
-      emas.forEach(ek => {
+      currentEmas.forEach(ek => {
         const val = d.emas[ek];
         const above = d.above[ek];
         const cls = above ? 'above-true' : 'above-false';
@@ -412,6 +507,18 @@ function renderTable(results, timeframes, emas) {
   });
 
   tbody.innerHTML = rows || '<tr><td colspan="99" style="text-align:center;padding:20px;color:#848e9c;">No matching pairs found</td></tr>';
+}
+
+/* ── render table ── */
+function renderTable(results, timeframes, emas) {
+  currentResults = results;
+  currentTimeframes = timeframes;
+  currentEmas = emas;
+  sortCol = null;
+  sortDir = 'desc';
+
+  const table = document.getElementById('result-table');
+  renderTableContent();
   table.style.display = 'table';
 
   if (results.length) document.getElementById('btn-csv').style.display = 'inline-block';
@@ -436,7 +543,7 @@ document.getElementById('btn-csv').addEventListener('click', () => {
   const { timeframes, emas, data } = lastScan;
   const csvRows = [];
 
-  const hdr = ['Rank', 'Symbol', '24h_Volume_USDT'];
+  const hdr = ['Rank', 'Symbol', '24h_Volume_USDT', '24H_Change_Pct', '7D_Change_Pct'];
   timeframes.forEach(tf => {
     const label = TF_LABELS[tf] || tf;
     hdr.push(`${label}_close`);
@@ -446,7 +553,7 @@ document.getElementById('btn-csv').addEventListener('click', () => {
   csvRows.push(hdr.join(','));
 
   data.results.forEach((r, i) => {
-    const row = [i + 1, r.symbol, r.quoteVolume];
+    const row = [i + 1, r.symbol, r.quoteVolume, r.chg24h ?? '', r.chg7d !== null ? r.chg7d.toFixed(2) : ''];
     timeframes.forEach(tf => {
       const d = r.timeframes[tf];
       if (!d || d.error) { row.push('', ...emas.flatMap(() => ['', '']), ''); return; }
