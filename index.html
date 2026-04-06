@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Binance Spot EMA Screener</title>
+<title>CEX Spot Screener</title>
 <style>
 /* ── Reset & base ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -12,44 +12,88 @@ body {
   background: #0b0e11; color: #eaecef; line-height: 1.5;
   padding: 20px; max-width: 1400px; margin: 0 auto;
 }
-h1 { font-size: 1.4rem; margin-bottom: 16px; color: #f0b90b; }
+h1 {
+  font-size: 1.5rem; margin-bottom: 20px; color: #f0b90b;
+  display: flex; align-items: center; gap: 10px;
+  letter-spacing: -.3px;
+}
+h1::before {
+  content: ''; display: inline-block; width: 4px; height: 22px;
+  background: linear-gradient(180deg, #f0b90b, #d4a30a);
+  border-radius: 2px;
+}
 
 /* ── Form panel ── */
 .panel {
-  background: #1e2329; border-radius: 8px; padding: 20px; margin-bottom: 20px;
+  background: linear-gradient(145deg, #1e2329, #1a1f25);
+  border-radius: 12px; padding: 24px; margin-bottom: 20px;
+  border: 1px solid #2b313966;
+  box-shadow: 0 4px 24px rgba(0,0,0,.3);
 }
 .form-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
+  gap: 20px;
 }
-.form-group label { display: block; font-size: .85rem; color: #848e9c; margin-bottom: 6px; }
-.checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.form-group {
+  background: #181c21; border-radius: 10px; padding: 14px 16px;
+  border: 1px solid #2b313944;
+  transition: border-color .2s;
+}
+.form-group:hover { border-color: #f0b90b33; }
+.form-group > label:first-child {
+  display: flex; align-items: center; gap: 6px;
+  font-size: .75rem; color: #636b75; margin-bottom: 10px;
+  text-transform: uppercase; letter-spacing: .8px; font-weight: 600;
+}
+.checkbox-group { display: flex; flex-wrap: wrap; gap: 6px; }
 .checkbox-group label {
-  background: #2b3139; padding: 4px 12px; border-radius: 4px;
-  cursor: pointer; font-size: .85rem; user-select: none;
-  border: 1px solid transparent; transition: .15s;
+  background: #2b3139; padding: 5px 14px; border-radius: 6px;
+  cursor: pointer; font-size: .82rem; user-select: none;
+  border: 1px solid #363c4566; transition: all .2s;
 }
-.checkbox-group label:hover { border-color: #f0b90b; }
-.checkbox-group input[type="checkbox"] { margin-right: 4px; accent-color: #f0b90b; }
-.checkbox-group input[type="checkbox"]:checked + span { color: #f0b90b; }
+.checkbox-group label:hover { border-color: #f0b90b88; background: #333a44; }
+.checkbox-group label.disabled { opacity: .35; pointer-events: none; }
+.checkbox-group input[type="checkbox"] { display: none; }
+.checkbox-group input[type="checkbox"]:checked + span { color: #f0b90b; font-weight: 600; }
+.checkbox-group input[type="checkbox"]:checked ~ span { color: #f0b90b; }
+.checkbox-group label:has(input:checked) {
+  background: #f0b90b18; border-color: #f0b90b66;
+}
 
 select, input[type="number"] {
-  background: #2b3139; color: #eaecef; border: 1px solid #363c45;
-  border-radius: 4px; padding: 6px 10px; font-size: .85rem; width: 100%;
+  background: #2b3139; color: #eaecef; border: 1px solid #363c4566;
+  border-radius: 8px; padding: 8px 12px; font-size: .85rem; width: 100%;
+  transition: border-color .2s, box-shadow .2s;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23848e9c' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+  padding-right: 30px; cursor: pointer;
 }
-select:focus, input:focus { outline: none; border-color: #f0b90b; }
+select:focus, input:focus {
+  outline: none; border-color: #f0b90b;
+  box-shadow: 0 0 0 3px #f0b90b1a;
+}
 
 /* ── Buttons ── */
-.btn-row { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
-.btn {
-  padding: 8px 24px; border: none; border-radius: 4px; font-size: .9rem;
-  cursor: pointer; font-weight: 600; transition: .15s;
+.btn-row {
+  margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;
+  padding-top: 20px; border-top: 1px solid #2b313944;
 }
-.btn-primary { background: #f0b90b; color: #0b0e11; }
-.btn-primary:hover { background: #d4a30a; }
-.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
-.btn-secondary { background: #2b3139; color: #eaecef; border: 1px solid #363c45; }
-.btn-secondary:hover { border-color: #f0b90b; }
+.btn {
+  padding: 10px 28px; border: none; border-radius: 8px; font-size: .9rem;
+  cursor: pointer; font-weight: 600; transition: all .2s;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-primary {
+  background: linear-gradient(135deg, #f0b90b, #d4a30a);
+  color: #0b0e11;
+  box-shadow: 0 2px 12px #f0b90b33;
+}
+.btn-primary:hover { background: linear-gradient(135deg, #fcd535, #f0b90b); box-shadow: 0 4px 16px #f0b90b44; transform: translateY(-1px); }
+.btn-primary:active { transform: translateY(0); }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+.btn-secondary { background: #2b3139; color: #eaecef; border: 1px solid #363c4566; }
+.btn-secondary:hover { border-color: #f0b90b88; background: #333a44; }
 
 /* ── Status ── */
 .status {
@@ -109,31 +153,43 @@ thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
 /* ── Responsive ── */
 @media (max-width: 640px) {
   .form-grid { grid-template-columns: 1fr; }
+  .panel { padding: 16px; }
+  .form-group { padding: 12px; }
   table { font-size: .75rem; }
 }
 </style>
 </head>
 <body>
 
-<h1>Binance Spot EMA Screener</h1>
+<h1>CEX Spot Screener</h1>
 
 <!-- ── Filter panel ── -->
 <div class="panel">
   <div class="form-grid">
     <div class="form-group">
-      <label>Time Periods</label>
+      <label>&#9878; Exchange</label>
+      <select id="exchange-select">
+        <option value="binance" selected>Binance</option>
+        <option value="okx">OKX</option>
+        <option value="bybit">Bybit</option>
+        <option value="coinbase">Coinbase (USD)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>&#9200; Time Periods</label>
       <div class="checkbox-group" id="tf-group">
-        <label><input type="checkbox" name="tf" value="4h"><span>4H</span></label>
-        <label><input type="checkbox" name="tf" value="12h"><span>12H</span></label>
-        <label><input type="checkbox" name="tf" value="1d" checked><span>1D</span></label>
-        <label><input type="checkbox" name="tf" value="3d"><span>3D</span></label>
-        <label><input type="checkbox" name="tf" value="1w"><span>1W</span></label>
-        <label><input type="checkbox" name="tf" value="1M"><span>1M</span></label>
+        <label data-tf="4h"><input type="checkbox" name="tf" value="4h"><span>4H</span></label>
+        <label data-tf="12h"><input type="checkbox" name="tf" value="12h"><span>12H</span></label>
+        <label data-tf="1d"><input type="checkbox" name="tf" value="1d" checked><span>1D</span></label>
+        <label data-tf="3d"><input type="checkbox" name="tf" value="3d"><span>3D</span></label>
+        <label data-tf="1w"><input type="checkbox" name="tf" value="1w"><span>1W</span></label>
+        <label data-tf="1M"><input type="checkbox" name="tf" value="1M"><span>1M</span></label>
       </div>
     </div>
 
     <div class="form-group">
-      <label>EMA Conditions</label>
+      <label>&#9636; EMA Conditions</label>
       <div class="checkbox-group" id="ema-group">
         <label><input type="checkbox" name="ema" value="3"><span>EMA3</span></label>
         <label><input type="checkbox" name="ema" value="7"><span>EMA7</span></label>
@@ -143,7 +199,7 @@ thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
     </div>
 
     <div class="form-group">
-      <label>Match Mode</label>
+      <label>&#9881; Match Mode</label>
       <select id="mode-select">
         <option value="all" selected>All periods match (ALL)</option>
         <option value="any">Any period matches (ANY)</option>
@@ -151,7 +207,7 @@ thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
     </div>
 
     <div class="form-group">
-      <label>Scan Range (by volume)</label>
+      <label>&#9783; Scan Range</label>
       <select id="topn-select">
         <option value="50">Top 50</option>
         <option value="100">Top 100</option>
@@ -161,7 +217,7 @@ thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
     </div>
 
     <div class="form-group">
-      <label>Listing Date Filter</label>
+      <label>&#9734; Listing Date</label>
       <select id="listing-filter">
         <option value="0" selected>All</option>
         <option value="7">Last 7 days</option>
@@ -192,16 +248,46 @@ thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
   </table>
 </div>
 
+<script src="config.js"></script>
 <script>
-const BINANCE = 'https://api.binance.com';
+/* ══════════════════════════════════════════════════════════════
+   CONFIG — WORKER_URL is loaded from config.js (gitignored).
+   Create config.js from config.example.js and set your Worker URL.
+   ══════════════════════════════════════════════════════════════ */
+const WORKER_URL = window.WORKER_URL || '';
 const CONCURRENCY = 8;
 
-/* ── Stablecoins to exclude ── */
+/* ── Stablecoins to exclude (sourced from CoinGecko stablecoins category) ── */
 const STABLECOINS = new Set([
-  'USDC', 'BUSD', 'TUSD', 'USDP', 'DAI', 'FDUSD', 'PYUSD', 'USD1',
-  'USDD', 'GUSD', 'SUSD', 'FRAX', 'LUSD', 'CRVUSD', 'GHO', 'USDB',
-  'USDJ', 'USTC', 'EURC', 'EURT', 'AEUR',
+  // USD-pegged fiat-backed
+  'USDT', 'USDC', 'BUSD', 'TUSD', 'USDP', 'FDUSD', 'PYUSD', 'GUSD', 'HUSD', 'USD1', 'RLUSD', 'ZUSD', 'XUSD', 'USDY', 'USAT', 'USDG',
+  // USD-pegged crypto/algo/synthetic
+  'DAI', 'USDS', 'USDE', 'USDD', 'FRXUSD', 'LUSD', 'CRVUSD', 'GHO', 'USDB', 'USDJ', 'USTC',
+  'MIM', 'ALUSD', 'DOLA', 'OUSD', 'MUSD', 'SUSD', 'USDX', 'CUSD', 'USDZ',
+  'USDK', 'FEI', 'RSV', 'RAI', 'YUSD',
+  // Yield-bearing stablecoin wrappers
+  'SUSDS', 'SUSDE', 'SDAI',
+  // EUR-pegged
+  'EURC', 'EURT', 'AEUR', 'SEUR', 'CEUR', 'AGEUR', 'EURS', 'EURA',
+  // Other fiat-pegged
+  'JPYC', 'XSGD', 'TRYB', 'SILK', 'GYEN',
+  // Wrapped/bridged stablecoins
+  'WUSDT', 'WUSDC', 'WDAI',
 ]);
+
+/* ── Interval mapping per exchange ──
+   String = native interval.
+   Object { base, n } = aggregate: fetch base interval, group every n candles, take last close.
+*/
+const INTERVAL_MAP = {
+  binance:  { '4h': '4h', '12h': '12h', '1d': '1d', '3d': '3d', '1w': '1w', '1M': '1M' },
+  okx:      { '4h': '4H', '12h': '12H', '1d': '1D', '3d': '3D', '1w': '1W', '1M': '1M' },
+  bybit:    { '4h': '240', '12h': '720', '1d': 'D', '3d': {base:'D', n:3}, '1w': 'W', '1M': 'M' },
+  coinbase: { '4h': '14400', '12h': {base:'21600', n:2}, '1d': '86400', '3d': {base:'86400', n:3}, '1w': {base:'86400', n:7}, '1M': {base:'86400', n:30} },
+};
+
+/* ── TF display names ── */
+const TF_LABELS = { '4h': '4H', '12h': '12H', '1d': '1D', '3d': '3D', '1w': '1W', '1M': '1M' };
 
 /* ── helpers ── */
 function getChecked(name) {
@@ -219,6 +305,15 @@ function fmtPrice(p) {
   if (p >= 0.01) return p.toFixed(4);
   return p.toPrecision(4);
 }
+function fmtChg(v) {
+  if (v === null || v === undefined || isNaN(v)) return '-';
+  const sign = v >= 0 ? '+' : '';
+  return sign + v.toFixed(2) + '%';
+}
+function fmtDate(ts) {
+  if (!ts) return '-';
+  return new Date(ts).toISOString().slice(0, 10);
+}
 function setStatus(cls, html) {
   const el = document.getElementById('status');
   el.className = 'status ' + cls;
@@ -231,58 +326,253 @@ function setProgress(pct) {
   fill.style.width = pct + '%';
 }
 
+/* ── Aggregate small candles into larger period ── */
+function aggregateCloses(closes, n) {
+  // Group every n closes, take the last close of each group
+  const result = [];
+  // Trim from the end so the last group is complete
+  const start = closes.length % n;
+  for (let i = start + n - 1; i < closes.length; i += n) {
+    result.push(closes[i]);
+  }
+  return result;
+}
+
+/* ── Fetch klines with optional aggregation ── */
+async function getKlinesAggregated(adapter, symbol, intervalCfg, limit) {
+  if (typeof intervalCfg === 'string') {
+    return adapter.getKlines(symbol, intervalCfg, limit);
+  }
+  // Aggregated: fetch more base candles, then group
+  const { base, n } = intervalCfg;
+  const rawCloses = await adapter.getKlines(symbol, base, limit * n);
+  return aggregateCloses(rawCloses, n);
+}
+
 /* ── EMA calculation ── */
 function calcEma(closes, period) {
   if (closes.length < period) return null;
   const k = 2 / (period + 1);
   let ema = closes[0];
-  for (let i = 1; i < closes.length; i++) {
-    ema = closes[i] * k + ema * (1 - k);
-  }
+  for (let i = 1; i < closes.length; i++) ema = closes[i] * k + ema * (1 - k);
   return ema;
 }
 
-/* ── Binance API ── */
+/* ── Generic fetch ── */
 async function fetchJson(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
 
-async function getUsdtSymbols() {
-  const data = await fetchJson(`${BINANCE}/api/v3/exchangeInfo`);
-  return data.symbols
-    .filter(s => s.quoteAsset === 'USDT' && s.status === 'TRADING' && s.isSpotTradingAllowed
-      && !STABLECOINS.has(s.baseAsset))
-    .map(s => s.symbol);
-}
+/* ══════════════════════════════════════════════════════════════
+   EXCHANGE ADAPTERS
+   Each returns normalized data:
+   - getSymbols()    → [{ symbol, baseAsset }]
+   - getTickers()    → { symbol: { vol, chg24h } }
+   - getKlines(sym, interval, limit) → [[close], ...] array of close prices
+   - getListingDate(sym) → timestamp ms | null
+   - listingDates    → cached map (for OKX which gets it from instruments)
+   ══════════════════════════════════════════════════════════════ */
 
-async function get24hTickers() {
-  const data = await fetchJson(`${BINANCE}/api/v3/ticker/24hr`);
-  const map = {};
-  for (const t of data) {
-    const v = parseFloat(t.quoteVolume);
-    if (!isNaN(v)) map[t.symbol] = { vol: v, chg24h: parseFloat(t.priceChangePercent) || 0 };
-  }
-  return map;
-}
+/* ── Binance ── */
+const binanceAdapter = {
+  name: 'Binance',
+  base: 'https://api.binance.com',
+  listingDates: {},
 
-async function getKlines(symbol, interval, limit = 80) {
-  return fetchJson(`${BINANCE}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
-}
+  async getSymbols() {
+    const data = await fetchJson(`${this.base}/api/v3/exchangeInfo`);
+    return data.symbols
+      .filter(s => s.quoteAsset === 'USDT' && s.status === 'TRADING' && s.isSpotTradingAllowed
+        && !STABLECOINS.has(s.baseAsset))
+      .map(s => ({ symbol: s.symbol, baseAsset: s.baseAsset }));
+  },
 
-async function getListingDate(symbol) {
-  const klines = await fetchJson(`${BINANCE}/api/v3/klines?symbol=${symbol}&interval=1d&startTime=0&limit=1`);
-  if (klines && klines.length) return klines[0][0];
-  return null;
-}
+  async getTickers() {
+    const data = await fetchJson(`${this.base}/api/v3/ticker/24hr`);
+    const map = {};
+    for (const t of data) {
+      const v = parseFloat(t.quoteVolume);
+      if (!isNaN(v)) map[t.symbol] = { vol: v, chg24h: parseFloat(t.priceChangePercent) || 0 };
+    }
+    return map;
+  },
+
+  async getKlines(symbol, interval, limit) {
+    const data = await fetchJson(`${this.base}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+    return data.map(k => parseFloat(k[4]));  // close price at index 4
+  },
+
+  async getListingDate(symbol) {
+    const data = await fetchJson(`${this.base}/api/v3/klines?symbol=${symbol}&interval=1d&startTime=0&limit=1`);
+    return (data && data.length) ? data[0][0] : null;
+  },
+};
+
+/* ── OKX ── */
+const okxAdapter = {
+  name: 'OKX',
+  base: WORKER_URL + '/okx',
+  listingDates: {},
+
+  async getSymbols() {
+    const data = await fetchJson(`${this.base}/public/instruments?instType=SPOT`);
+    const instruments = data.data || [];
+    const results = [];
+    for (const s of instruments) {
+      if (s.state !== 'live') continue;
+      if (!s.instId.endsWith('-USDT')) continue;
+      const baseAsset = s.instId.replace('-USDT', '');
+      if (STABLECOINS.has(baseAsset)) continue;
+      results.push({ symbol: s.instId, baseAsset });
+      if (s.listTime) this.listingDates[s.instId] = parseInt(s.listTime);
+    }
+    return results;
+  },
+
+  async getTickers() {
+    const data = await fetchJson(`${this.base}/market/tickers?instType=SPOT`);
+    const tickers = data.data || [];
+    const map = {};
+    for (const t of tickers) {
+      if (!t.instId.endsWith('-USDT')) continue;
+      const vol = parseFloat(t.volCcy24h) || 0;   // quote volume in USDT
+      const last = parseFloat(t.last) || 0;
+      const open = parseFloat(t.open24h) || 0;
+      const chg24h = open > 0 ? ((last - open) / open) * 100 : 0;
+      map[t.instId] = { vol, chg24h };
+    }
+    return map;
+  },
+
+  async getKlines(symbol, interval, limit) {
+    const data = await fetchJson(`${this.base}/market/candles?instId=${symbol}&bar=${interval}&limit=${limit}`);
+    const candles = data.data || [];
+    // OKX returns newest first, reverse to oldest-first
+    candles.reverse();
+    return candles.map(k => parseFloat(k[4]));  // close at index 4
+  },
+
+  async getListingDate(symbol) {
+    return this.listingDates[symbol] || null;
+  },
+};
+
+/* ── Bybit ── */
+const bybitAdapter = {
+  name: 'Bybit',
+  base: WORKER_URL + '/bybit',
+  listingDates: {},
+
+  async getSymbols() {
+    const data = await fetchJson(`${this.base}/market/instruments-info?category=spot`);
+    const items = (data.result && data.result.list) || [];
+    return items
+      .filter(s => s.quoteCoin === 'USDT' && s.status === 'Trading'
+        && !STABLECOINS.has(s.baseCoin))
+      .map(s => ({ symbol: s.symbol, baseAsset: s.baseCoin }));
+  },
+
+  async getTickers() {
+    const data = await fetchJson(`${this.base}/market/tickers?category=spot`);
+    const tickers = (data.result && data.result.list) || [];
+    const map = {};
+    for (const t of tickers) {
+      const vol = parseFloat(t.turnover24h) || 0;  // quote volume in USDT
+      const last = parseFloat(t.lastPrice) || 0;
+      const prev = parseFloat(t.prevPrice24h) || 0;
+      const chg24h = prev > 0 ? ((last - prev) / prev) * 100 : 0;
+      map[t.symbol] = { vol, chg24h };
+    }
+    return map;
+  },
+
+  async getKlines(symbol, interval, limit) {
+    const data = await fetchJson(`${this.base}/market/kline?category=spot&symbol=${symbol}&interval=${interval}&limit=${limit}`);
+    const candles = (data.result && data.result.list) || [];
+    // Bybit returns newest first, reverse
+    candles.reverse();
+    return candles.map(k => parseFloat(k[4]));  // close at index 4
+  },
+
+  async getListingDate(symbol) {
+    const data = await fetchJson(`${this.base}/market/kline?category=spot&symbol=${symbol}&interval=D&start=0&limit=1`);
+    const candles = (data.result && data.result.list) || [];
+    return candles.length ? parseInt(candles[candles.length - 1][0]) : null;
+  },
+};
+
+/* ── Coinbase ── */
+const coinbaseAdapter = {
+  name: 'Coinbase',
+  base: WORKER_URL + '/coinbase',
+  listingDates: {},
+
+  async getSymbols() {
+    const data = await fetchJson(`${this.base}/products`);
+    return data
+      .filter(p => p.quote_currency === 'USD' && !p.trading_disabled && p.status === 'online'
+        && !STABLECOINS.has(p.base_currency))
+      .map(p => ({ symbol: p.id, baseAsset: p.base_currency }));
+  },
+
+  async getTickers() {
+    // Coinbase has no bulk ticker — use /products which includes price info
+    const data = await fetchJson(`${this.base}/products`);
+    const map = {};
+    for (const p of data) {
+      if (p.quote_currency !== 'USD') continue;
+      map[p.id] = { vol: parseFloat(p.volume_24h || '0') * parseFloat(p.price || '1'), chg24h: 0 };
+    }
+    // Try to get stats from ticker endpoint
+    try {
+      const stats = await fetchJson(`${this.base}/products/stats`);
+      if (Array.isArray(stats)) {
+        for (const s of stats) {
+          if (map[s.id]) {
+            const last = parseFloat(s.last) || 0;
+            const open = parseFloat(s.open) || 0;
+            map[s.id].vol = parseFloat(s.volume) * last || map[s.id].vol;
+            map[s.id].chg24h = open > 0 ? ((last - open) / open) * 100 : 0;
+          }
+        }
+      }
+    } catch {}
+    return map;
+  },
+
+  async getKlines(symbol, granularity, limit) {
+    const end = Math.floor(Date.now() / 1000);
+    const start = end - parseInt(granularity) * limit;
+    const data = await fetchJson(`${this.base}/products/${symbol}/candles?granularity=${granularity}&start=${start}&end=${end}`);
+    if (!Array.isArray(data)) return [];
+    // Coinbase returns newest first: [time, low, high, open, close, volume]
+    data.reverse();
+    return data.map(k => parseFloat(k[4]));  // close at index 4
+  },
+
+  async getListingDate(symbol) {
+    try {
+      const data = await fetchJson(`${this.base}/products/${symbol}/candles?granularity=86400&start=0&end=${Math.floor(Date.now() / 1000)}`);
+      if (Array.isArray(data) && data.length) {
+        const oldest = data[data.length - 1];
+        return oldest[0] * 1000;
+      }
+    } catch {}
+    return null;
+  },
+};
+
+const ADAPTERS = { binance: binanceAdapter, okx: okxAdapter, bybit: bybitAdapter, coinbase: coinbaseAdapter };
+
+/* All timeframes now supported on all exchanges via aggregation — no need to disable */
 
 /* ── Concurrent scanner with pool ── */
 async function runPool(tasks, concurrency, onProgress) {
   const results = [];
   let idx = 0, done = 0;
   const total = tasks.length;
-
   async function next() {
     while (idx < total) {
       const i = idx++;
@@ -291,7 +581,6 @@ async function runPool(tasks, concurrency, onProgress) {
       if (onProgress) onProgress(done, total);
     }
   }
-
   const workers = [];
   for (let i = 0; i < Math.min(concurrency, total); i++) workers.push(next());
   await Promise.all(workers);
@@ -299,17 +588,17 @@ async function runPool(tasks, concurrency, onProgress) {
 }
 
 /* ── Per-symbol scan ── */
-async function scanSymbol(symbol, timeframes, emaPeriods) {
+async function scanSymbol(adapter, symbol, timeframes, intervalMap, emaPeriods) {
   const tfResults = {};
   let chg7d = null;
   let chg30d = null;
-  let listingDate = null;
   const need1dForChg = !timeframes.includes('1d');
 
   for (const tf of timeframes) {
+    const exInterval = intervalMap[tf];
+    if (!exInterval) { tfResults[tf] = { match: false }; continue; }
     try {
-      const klines = await getKlines(symbol, tf);
-      const closes = klines.map(k => parseFloat(k[4]));
+      const closes = await getKlinesAggregated(adapter, symbol, exInterval, 80);
       if (!closes.length) { tfResults[tf] = { match: false }; continue; }
       const close = closes[closes.length - 1];
       const result = { close, emas: {}, above: {} };
@@ -326,12 +615,12 @@ async function scanSymbol(symbol, timeframes, emaPeriods) {
 
       if (tf === '1d') {
         if (closes.length >= 7) {
-          const close7dAgo = closes[closes.length - 7];
-          chg7d = (close - close7dAgo) / close7dAgo * 100;
+          const c7 = closes[closes.length - 7];
+          chg7d = (close - c7) / c7 * 100;
         }
         if (closes.length >= 30) {
-          const close30dAgo = closes[closes.length - 30];
-          chg30d = (close - close30dAgo) / close30dAgo * 100;
+          const c30 = closes[closes.length - 30];
+          chg30d = (close - c30) / c30 * 100;
         }
       }
     } catch (e) {
@@ -339,24 +628,24 @@ async function scanSymbol(symbol, timeframes, emaPeriods) {
     }
   }
 
-  if (need1dForChg) {
+  if (need1dForChg && intervalMap['1d']) {
     try {
-      const klines = await getKlines(symbol, '1d', 31);
-      const closes = klines.map(k => parseFloat(k[4]));
+      const closes = await getKlinesAggregated(adapter, symbol, intervalMap['1d'], 31);
       const close = closes[closes.length - 1];
       if (closes.length >= 7) {
-        const close7dAgo = closes[closes.length - 7];
-        chg7d = (close - close7dAgo) / close7dAgo * 100;
+        const c7 = closes[closes.length - 7];
+        chg7d = (close - c7) / c7 * 100;
       }
       if (closes.length >= 30) {
-        const close30dAgo = closes[closes.length - 30];
-        chg30d = (close - close30dAgo) / close30dAgo * 100;
+        const c30 = closes[closes.length - 30];
+        chg30d = (close - c30) / c30 * 100;
       }
     } catch {}
   }
 
+  let listingDate = null;
   try {
-    listingDate = await getListingDate(symbol);
+    listingDate = await adapter.getListingDate(symbol);
   } catch {}
 
   return { tfResults, chg7d, chg30d, listingDate };
@@ -368,7 +657,10 @@ let scanning = false;
 
 document.getElementById('btn-scan').addEventListener('click', async () => {
   if (scanning) return;
-  const timeframes = getChecked('tf');
+  const exchangeKey = document.getElementById('exchange-select').value;
+  const adapter = ADAPTERS[exchangeKey];
+  const intervalMap = INTERVAL_MAP[exchangeKey];
+  const timeframes = getChecked('tf').filter(tf => intervalMap[tf]);
   const emaPeriods = getChecked('ema').map(Number);
   const mode = document.getElementById('mode-select').value;
   const topN = parseInt(document.getElementById('topn-select').value, 10);
@@ -386,10 +678,10 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
   const t0 = performance.now();
 
   try {
-    setStatus('loading', '<span class="spinner"></span>Fetching symbol list & 24h tickers...');
-    const [allSymbols, tickers] = await Promise.all([getUsdtSymbols(), get24hTickers()]);
+    setStatus('loading', `<span class="spinner"></span>Fetching ${adapter.name} symbol list & tickers...`);
+    const [symbolList, tickers] = await Promise.all([adapter.getSymbols(), adapter.getTickers()]);
 
-    const symbolSet = new Set(allSymbols);
+    const symbolSet = new Set(symbolList.map(s => s.symbol));
     let ranked = Object.entries(tickers)
       .filter(([sym]) => symbolSet.has(sym))
       .sort((a, b) => b[1].vol - a[1].vol);
@@ -397,13 +689,13 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
     if (topN > 0) ranked = ranked.slice(0, topN);
 
     setStatus('loading',
-      `<span class="spinner"></span>Scanning ${ranked.length} symbols (${CONCURRENCY} parallel)...`);
+      `<span class="spinner"></span>Scanning ${ranked.length} ${adapter.name} symbols (${CONCURRENCY} parallel)...`);
     setProgress(0);
 
     const now = Date.now();
     const output = [];
     const tasks = ranked.map(([sym, tickerData]) => async () => {
-      const { tfResults, chg7d, chg30d, listingDate } = await scanSymbol(sym, timeframes, emaPeriods);
+      const { tfResults, chg7d, chg30d, listingDate } = await scanSymbol(adapter, sym, timeframes, intervalMap, emaPeriods);
       const tfMatches = timeframes.map(tf => (tfResults[tf] && tfResults[tf].match) || false);
       const passed = mode === 'all' ? tfMatches.every(Boolean) : tfMatches.some(Boolean);
       if (!passed) return;
@@ -416,31 +708,27 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
 
     await runPool(tasks, CONCURRENCY, (done, total) => {
       setProgress(Math.round(done / total * 100));
-      setStatus('loading',
-        `<span class="spinner"></span>Scanning... ${done}/${total}`);
+      setStatus('loading', `<span class="spinner"></span>${adapter.name} scanning... ${done}/${total}`);
     });
 
     output.sort((a, b) => b.quoteVolume - a.quoteVolume);
 
     const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
     const emaLabels = emaPeriods.map(p => `EMA${p}`);
-    lastScan = { timeframes, emas: emaLabels, data: { results: output, total_scanned: ranked.length, total_matched: output.length, elapsed } };
+    lastScan = { exchange: exchangeKey, timeframes, emas: emaLabels, data: { results: output, total_scanned: ranked.length, total_matched: output.length, elapsed } };
 
     setStatus('done',
-      `Done! Scanned <b>${ranked.length}</b> pairs, matched <b>${output.length}</b>, took <b>${elapsed}s</b>`);
+      `Done! ${adapter.name}: scanned <b>${ranked.length}</b> pairs, matched <b>${output.length}</b>, took <b>${elapsed}s</b>`);
     setProgress(100);
 
     renderTable(output, timeframes, emaLabels);
   } catch (e) {
-    setStatus('error', 'Error: ' + e.message);
+    setStatus('error', `${adapter.name} error: ` + e.message);
   } finally {
     btn.disabled = false;
     scanning = false;
   }
 });
-
-/* ── TF display names ── */
-const TF_LABELS = { '4h': '4H', '12h': '12H', '1d': '1D', '3d': '3D', '1w': '1W', '1M': '1M' };
 
 /* ── Sort state ── */
 let sortCol = null;
@@ -448,18 +736,6 @@ let sortDir = 'desc';
 let currentResults = [];
 let currentTimeframes = [];
 let currentEmas = [];
-
-function fmtChg(v) {
-  if (v === null || v === undefined || isNaN(v)) return '-';
-  const sign = v >= 0 ? '+' : '';
-  return sign + v.toFixed(2) + '%';
-}
-
-function fmtDate(ts) {
-  if (!ts) return '-';
-  const d = new Date(ts);
-  return d.toISOString().slice(0, 10);
-}
 
 function getSortValue(r, col) {
   if (col === 'rank') return 0;
@@ -469,11 +745,9 @@ function getSortValue(r, col) {
   if (col === 'chg7d') return r.chg7d ?? -Infinity;
   if (col === 'chg30d') return r.chg30d ?? -Infinity;
   if (col === 'listingDate') return r.listingDate ?? 0;
-  // timeframe columns — sort by number of matched EMAs
   const d = r.timeframes[col];
   if (!d || d.error) return -1;
-  const matched = Object.values(d.above || {}).filter(Boolean).length;
-  return matched;
+  return Object.values(d.above || {}).filter(Boolean).length;
 }
 
 function doSort(col) {
@@ -532,7 +806,7 @@ function renderTableContent() {
   currentResults.forEach((r, i) => {
     rows += '<tr>';
     rows += `<td class="rank">${i + 1}</td>`;
-    rows += `<td><b>${r.symbol}</b></td>`;
+    rows += `<td><b>${r.symbol.replace(/-/g, '')}</b></td>`;
     rows += `<td class="vol">${fmtVol(r.quoteVolume)}</td>`;
     const chg24hCls = (r.chg24h ?? 0) >= 0 ? 'chg-pos' : 'chg-neg';
     rows += `<td class="${chg24hCls}">${fmtChg(r.chg24h)}</td>`;
@@ -563,7 +837,6 @@ function renderTableContent() {
   tbody.innerHTML = rows || '<tr><td colspan="99" style="text-align:center;padding:20px;color:#848e9c;">No matching pairs found</td></tr>';
 }
 
-/* ── render table ── */
 function renderTable(results, timeframes, emas) {
   currentResults = results;
   currentTimeframes = timeframes;
@@ -580,6 +853,7 @@ function renderTable(results, timeframes, emas) {
 
 /* ── reset ── */
 document.getElementById('btn-reset').addEventListener('click', () => {
+  document.getElementById('exchange-select').value = 'binance';
   document.querySelectorAll('input[name="tf"]').forEach(c => c.checked = c.value === '1d');
   document.querySelectorAll('input[name="ema"]').forEach(c => c.checked = c.value === '21');
   document.getElementById('mode-select').value = 'all';
@@ -595,10 +869,10 @@ document.getElementById('btn-reset').addEventListener('click', () => {
 /* ── CSV export ── */
 document.getElementById('btn-csv').addEventListener('click', () => {
   if (!lastScan) return;
-  const { timeframes, emas, data } = lastScan;
+  const { exchange, timeframes, emas, data } = lastScan;
   const csvRows = [];
 
-  const hdr = ['Rank', 'Symbol', '24h_Volume_USDT', '24H_Change_Pct', '7D_Change_Pct', '30D_Change_Pct', 'Listing_Date'];
+  const hdr = ['Rank', 'Exchange', 'Symbol', '24h_Volume_USDT', '24H_Change_Pct', '7D_Change_Pct', '30D_Change_Pct', 'Listing_Date'];
   timeframes.forEach(tf => {
     const label = TF_LABELS[tf] || tf;
     hdr.push(`${label}_close`);
@@ -608,7 +882,7 @@ document.getElementById('btn-csv').addEventListener('click', () => {
   csvRows.push(hdr.join(','));
 
   data.results.forEach((r, i) => {
-    const row = [i + 1, r.symbol, r.quoteVolume, r.chg24h ?? '', r.chg7d !== null ? r.chg7d.toFixed(2) : '', r.chg30d !== null ? r.chg30d.toFixed(2) : '', r.listingDate ? fmtDate(r.listingDate) : ''];
+    const row = [i + 1, exchange, r.symbol.replace(/-/g, ''), r.quoteVolume, r.chg24h ?? '', r.chg7d !== null ? r.chg7d.toFixed(2) : '', r.chg30d !== null ? r.chg30d.toFixed(2) : '', r.listingDate ? fmtDate(r.listingDate) : ''];
     timeframes.forEach(tf => {
       const d = r.timeframes[tf];
       if (!d || d.error) { row.push('', ...emas.flatMap(() => ['', '']), ''); return; }
@@ -622,7 +896,7 @@ document.getElementById('btn-csv').addEventListener('click', () => {
   const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `ema_scan_${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.csv`;
+  a.download = `${exchange}_ema_scan_${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.csv`;
   a.click();
 });
 </script>
