@@ -497,9 +497,16 @@ const bybitAdapter = {
   },
 
   async getListingDate(symbol) {
-    const data = await fetchJson(`${this.base}/market/kline?category=spot&symbol=${symbol}&interval=D&start=0&limit=1`);
-    const candles = (data.result && data.result.list) || [];
-    return candles.length ? parseInt(candles[candles.length - 1][0]) : null;
+    // Step 1: Use monthly klines to find the earliest month
+    const mData = await fetchJson(`${this.base}/market/kline?category=spot&symbol=${symbol}&interval=M&limit=200`);
+    const mCandles = (mData.result && mData.result.list) || [];
+    if (!mCandles.length) return null;
+    const earliestMonth = parseInt(mCandles[mCandles.length - 1][0]);
+    // Step 2: Use daily klines within that month to find the exact listing day
+    const endOfMonth = earliestMonth + 32 * 24 * 3600 * 1000;
+    const dData = await fetchJson(`${this.base}/market/kline?category=spot&symbol=${symbol}&interval=D&start=${earliestMonth}&end=${endOfMonth}&limit=31`);
+    const dCandles = (dData.result && dData.result.list) || [];
+    return dCandles.length ? parseInt(dCandles[dCandles.length - 1][0]) : earliestMonth;
   },
 };
 
