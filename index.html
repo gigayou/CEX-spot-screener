@@ -268,7 +268,7 @@ const STABLECOINS = new Set([
   // Yield-bearing stablecoin wrappers
   'SUSDS', 'SUSDE', 'SDAI',
   // EUR-pegged
-  'EURC', 'EURT', 'AEUR', 'SEUR', 'CEUR', 'AGEUR', 'EURS', 'EURA',
+  'EUR', 'EURI','EURC', 'EURT', 'AEUR', 'SEUR', 'CEUR', 'AGEUR', 'EURS', 'EURA',
   // Other fiat-pegged
   'JPYC', 'XSGD', 'TRYB', 'SILK', 'GYEN',
   // Wrapped/bridged stablecoins
@@ -324,6 +324,10 @@ function setProgress(pct) {
   const fill = document.getElementById('progress-fill');
   bar.className = 'progress-bar' + (pct < 100 ? ' active' : '');
   fill.style.width = pct + '%';
+}
+function logWarn(context, err) {
+  const msg = (err && err.message) ? err.message : String(err);
+  console.warn(`[warn] ${context}: ${msg}`);
 }
 
 /* ── Aggregate small candles into larger period ── */
@@ -545,7 +549,9 @@ const coinbaseAdapter = {
           }
         }
       }
-    } catch {}
+    } catch (e) {
+      logWarn('Coinbase bulk stats unavailable', e);
+    }
     return map;
   },
 
@@ -566,7 +572,9 @@ const coinbaseAdapter = {
         const oldest = data[data.length - 1];
         return oldest[0] * 1000;
       }
-    } catch {}
+    } catch (e) {
+      logWarn(`Coinbase listing date fetch failed for ${symbol}`, e);
+    }
     return null;
   },
 };
@@ -583,7 +591,11 @@ async function runPool(tasks, concurrency, onProgress) {
   async function next() {
     while (idx < total) {
       const i = idx++;
-      try { results.push(await tasks[i]()); } catch {}
+      try {
+        results.push(await tasks[i]());
+      } catch (e) {
+        logWarn(`Task #${i + 1} failed`, e);
+      }
       done++;
       if (onProgress) onProgress(done, total);
     }
@@ -621,12 +633,12 @@ async function scanSymbol(adapter, symbol, timeframes, intervalMap, emaPeriods) 
       tfResults[tf] = result;
 
       if (tf === '1d') {
-        if (closes.length >= 7) {
-          const c7 = closes[closes.length - 7];
+        if (closes.length >= 8) {
+          const c7 = closes[closes.length - 8];
           chg7d = (close - c7) / c7 * 100;
         }
-        if (closes.length >= 30) {
-          const c30 = closes[closes.length - 30];
+        if (closes.length >= 31) {
+          const c30 = closes[closes.length - 31];
           chg30d = (close - c30) / c30 * 100;
         }
       }
@@ -639,21 +651,25 @@ async function scanSymbol(adapter, symbol, timeframes, intervalMap, emaPeriods) 
     try {
       const closes = await getKlinesAggregated(adapter, symbol, intervalMap['1d'], 31);
       const close = closes[closes.length - 1];
-      if (closes.length >= 7) {
-        const c7 = closes[closes.length - 7];
+      if (closes.length >= 8) {
+        const c7 = closes[closes.length - 8];
         chg7d = (close - c7) / c7 * 100;
       }
-      if (closes.length >= 30) {
-        const c30 = closes[closes.length - 30];
+      if (closes.length >= 31) {
+        const c30 = closes[closes.length - 31];
         chg30d = (close - c30) / c30 * 100;
       }
-    } catch {}
+    } catch (e) {
+      logWarn(`1D change fallback failed for ${symbol}`, e);
+    }
   }
 
   let listingDate = null;
   try {
     listingDate = await adapter.getListingDate(symbol);
-  } catch {}
+  } catch (e) {
+    logWarn(`Listing date fetch failed for ${symbol}`, e);
+  }
 
   return { tfResults, chg7d, chg30d, listingDate };
 }
@@ -706,9 +722,10 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
       const tfMatches = timeframes.map(tf => (tfResults[tf] && tfResults[tf].match) || false);
       const passed = mode === 'all' ? tfMatches.every(Boolean) : tfMatches.some(Boolean);
       if (!passed) return;
-      if (listingFilterDays > 0 && listingDate) {
+      if (listingFilterDays > 0) {
+        if (!listingDate) return;
         const daysSinceListing = (now - listingDate) / (1000 * 60 * 60 * 24);
-        if (daysSinceListing > listingFilterDays) return;
+        if (daysSinceListing < 0 || daysSinceListing > listingFilterDays) return;
       }
       output.push({ symbol: sym, quoteVolume: tickerData.vol, chg24h: tickerData.chg24h, chg7d, chg30d, listingDate, timeframes: tfResults });
     });
