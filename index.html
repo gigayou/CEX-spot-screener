@@ -146,6 +146,15 @@ tbody tr:hover { background: #2b313955; }
 .rank { color: #848e9c; text-align: center; }
 .chg-pos { color: #2ebd85; font-weight: 600; }
 .chg-neg { color: #f6465d; font-weight: 600; }
+.sym-cell { cursor: pointer; position: relative; }
+.sym-cell:hover { color: #f0b90b; }
+.copied-tip {
+  position: absolute; top: -24px; left: 50%; transform: translateX(-50%);
+  background: #2ebd85; color: #0b0e11; padding: 2px 8px; border-radius: 4px;
+  font-size: .7rem; font-weight: 600; white-space: nowrap;
+  animation: fadeTip .8s ease forwards; pointer-events: none;
+}
+@keyframes fadeTip { 0%{opacity:1;top:-24px} 70%{opacity:1} 100%{opacity:0;top:-30px} }
 thead th.sortable { cursor: pointer; user-select: none; }
 thead th.sortable:hover { color: #f0b90b; }
 thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
@@ -261,14 +270,14 @@ const CONCURRENCY = 8;
 const STABLECOINS = new Set([
   // USD-pegged fiat-backed
   'USDT', 'USDC', 'BUSD', 'TUSD', 'USDP', 'FDUSD', 'PYUSD', 'GUSD', 'HUSD', 'USD1', 'RLUSD', 'ZUSD', 'XUSD', 'USDY', 'USAT', 'USDG',
-  // USD-pegged crypto/algo/synthetic
+  // USD-pegged crypto/algo/syntheticN
   'DAI', 'USDS', 'USDE', 'USDD', 'FRXUSD', 'LUSD', 'CRVUSD', 'GHO', 'USDB', 'USDJ', 'USTC',
   'MIM', 'ALUSD', 'DOLA', 'OUSD', 'MUSD', 'SUSD', 'USDX', 'CUSD', 'USDZ',
   'USDK', 'FEI', 'RSV', 'RAI', 'YUSD',
   // Yield-bearing stablecoin wrappers
   'SUSDS', 'SUSDE', 'SDAI',
   // EUR-pegged
-  'EUR', 'EURI','EURC', 'EURT', 'AEUR', 'SEUR', 'CEUR', 'AGEUR', 'EURS', 'EURA',
+  'EUR', 'EURI', 'EURC', 'EURT', 'AEUR', 'SEUR', 'CEUR', 'AGEUR', 'EURS', 'EURA',
   // Other fiat-pegged
   'JPYC', 'XSGD', 'TRYB', 'SILK', 'GYEN',
   // Wrapped/bridged stablecoins
@@ -830,7 +839,8 @@ function renderTableContent() {
   currentResults.forEach((r, i) => {
     rows += '<tr>';
     rows += `<td class="rank">${i + 1}</td>`;
-    rows += `<td><b>${r.symbol.replace(/-/g, '')}</b></td>`;
+    const displaySym = r.symbol.replace(/-/g, '');
+    rows += `<td class="sym-cell" data-sym="${displaySym}"><b>${displaySym}</b></td>`;
     rows += `<td class="vol">${fmtVol(r.quoteVolume)}</td>`;
     const chg24hCls = (r.chg24h ?? 0) >= 0 ? 'chg-pos' : 'chg-neg';
     rows += `<td class="${chg24hCls}">${fmtChg(r.chg24h)}</td>`;
@@ -859,6 +869,19 @@ function renderTableContent() {
   });
 
   tbody.innerHTML = rows || '<tr><td colspan="99" style="text-align:center;padding:20px;color:#848e9c;">No matching pairs found</td></tr>';
+
+  tbody.querySelectorAll('.sym-cell').forEach(td => {
+    td.addEventListener('click', () => {
+      const sym = td.dataset.sym;
+      navigator.clipboard.writeText(sym).then(() => {
+        const tip = document.createElement('span');
+        tip.className = 'copied-tip';
+        tip.textContent = 'Copied!';
+        td.appendChild(tip);
+        setTimeout(() => tip.remove(), 800);
+      });
+    });
+  });
 }
 
 function renderTable(results, timeframes, emas) {
