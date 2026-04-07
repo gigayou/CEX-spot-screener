@@ -779,8 +779,13 @@ function getSortValue(r, col) {
   if (col === 'chg30d') return r.chg30d ?? -Infinity;
   if (col === 'listingDate') return r.listingDate ?? 0;
   const d = r.timeframes[col];
-  if (!d || d.error) return -1;
-  return Object.values(d.above || {}).filter(Boolean).length;
+  if (!d || d.error) return -Infinity;
+  // Sort by first EMA's deviation percentage
+  const ek = currentEmas[0];
+  if (ek && d.emas[ek] != null && d.emas[ek] !== 0) {
+    return (d.close - d.emas[ek]) / d.emas[ek] * 100;
+  }
+  return -Infinity;
 }
 
 function doSort(col) {
@@ -809,9 +814,9 @@ function renderTableHeader() {
     { key: 'rank', label: '#' },
     { key: 'symbol', label: 'Symbol' },
     { key: 'volume', label: '24h Volume (USDT)' },
-    { key: 'chg24h', label: '24H Chg%' },
-    { key: 'chg7d', label: '7D Chg%' },
-    { key: 'chg30d', label: '30D Chg%' },
+    { key: 'chg24h', label: '24H' },
+    { key: 'chg7d', label: '7D' },
+    { key: 'chg30d', label: '30D' },
     { key: 'listingDate', label: 'Listing Date' },
   ];
   currentTimeframes.forEach(tf => {
@@ -854,7 +859,18 @@ function renderTableContent() {
       const d = r.timeframes[tf];
       if (!d || d.error) { rows += '<td class="above-false">error</td>'; return; }
       let cell = '<div class="ema-detail">';
-      cell += `<div>Close: <b>${fmtPrice(d.close)}</b></div>`;
+      currentEmas.forEach(ek => {
+        const val = d.emas[ek];
+        const above = d.above[ek];
+        if (val != null && val !== 0) {
+          const dev = (d.close - val) / val * 100;
+          const cls = dev >= 0 ? 'chg-pos' : 'chg-neg';
+          cell += `<div class="${cls}"><b>${fmtChg(dev)}</b></div>`;
+        } else {
+          cell += `<div>-</div>`;
+        }
+      });
+      cell += `<div>Close: ${fmtPrice(d.close)}</div>`;
       currentEmas.forEach(ek => {
         const val = d.emas[ek];
         const above = d.above[ek];
@@ -922,6 +938,7 @@ document.getElementById('btn-csv').addEventListener('click', () => {
   const hdr = ['Rank', 'Exchange', 'Symbol', '24h_Volume_USDT', '24H_Change_Pct', '7D_Change_Pct', '30D_Change_Pct', 'Listing_Date'];
   timeframes.forEach(tf => {
     const label = TF_LABELS[tf] || tf;
+    emas.forEach(ek => { hdr.push(`${label}_${ek}_Dev_Pct`); });
     hdr.push(`${label}_close`);
     emas.forEach(ek => { hdr.push(`${label}_${ek}`); hdr.push(`${label}_above_${ek}`); });
     hdr.push(`${label}_match`);
@@ -932,7 +949,11 @@ document.getElementById('btn-csv').addEventListener('click', () => {
     const row = [i + 1, exchange, r.symbol.replace(/-/g, ''), r.quoteVolume, r.chg24h ?? '', r.chg7d !== null ? r.chg7d.toFixed(2) : '', r.chg30d !== null ? r.chg30d.toFixed(2) : '', r.listingDate ? fmtDate(r.listingDate) : ''];
     timeframes.forEach(tf => {
       const d = r.timeframes[tf];
-      if (!d || d.error) { row.push('', ...emas.flatMap(() => ['', '']), ''); return; }
+      if (!d || d.error) { row.push(...emas.map(() => ''), '', ...emas.flatMap(() => ['', '']), ''); return; }
+      emas.forEach(ek => {
+        const val = d.emas[ek];
+        row.push(val != null && val !== 0 ? ((d.close - val) / val * 100).toFixed(2) : '');
+      });
       row.push(d.close);
       emas.forEach(ek => { row.push(d.emas[ek] ?? ''); row.push(d.above[ek] ?? ''); });
       row.push(d.match);
