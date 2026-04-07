@@ -158,6 +158,19 @@ tbody tr:hover { background: #2b313955; }
 thead th.sortable { cursor: pointer; user-select: none; }
 thead th.sortable:hover { color: #f0b90b; }
 thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
+.sort-menu {
+  position: absolute; z-index: 100;
+  background: #2b3139; border: 1px solid #363c45; border-radius: 8px;
+  padding: 4px 0; min-width: 120px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.5);
+}
+.sort-menu-item {
+  padding: 6px 14px; font-size: .8rem; cursor: pointer;
+  white-space: nowrap; color: #eaecef;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.sort-menu-item:hover { background: #363c45; color: #f0b90b; }
+.sort-menu-item.active { color: #f0b90b; font-weight: 600; }
 
 /* ── Responsive ── */
 @media (max-width: 640px) {
@@ -269,7 +282,7 @@ const CONCURRENCY = 8;
 /* ── Stablecoins to exclude (sourced from CoinGecko stablecoins category) ── */
 const STABLECOINS = new Set([
   // USD-pegged fiat-backed
-  'USDT', 'USDC', 'BUSD', 'TUSD', 'USDP', 'FDUSD', 'PYUSD', 'GUSD', 'HUSD', 'USD1', 'RLUSD', 'ZUSD', 'XUSD', 'USDY', 'USAT', 'USDG',
+  'USDT', 'USDC', 'BUSD', 'TUSD', 'USDP', 'FDUSD', 'PYUSD', 'GUSD', 'HUSD', 'USD1', 'RLUSD', 'ZUSD', 'XUSD', 'USDY', 'USAT', 'USDG', 'BFUSD',
   // USD-pegged crypto/algo/syntheticN
   'DAI', 'USDS', 'USDE', 'USDD', 'FRXUSD', 'LUSD', 'CRVUSD', 'GHO', 'USDB', 'USDJ', 'USTC',
   'MIM', 'ALUSD', 'DOLA', 'OUSD', 'MUSD', 'SUSD', 'USDX', 'CUSD', 'USDZ',
@@ -766,9 +779,76 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
 /* ── Sort state ── */
 let sortCol = null;
 let sortDir = 'desc';
+let sortEmaKey = null;  // which EMA to sort by for timeframe columns
 let currentResults = [];
 let currentTimeframes = [];
 let currentEmas = [];
+
+function isTfCol(col) {
+  return currentTimeframes.includes(col);
+}
+
+let sortMenuOpen = null;  // tracks which col's menu is open
+
+function closeSortMenu() {
+  const old = document.querySelector('.sort-menu');
+  if (old) old.remove();
+  sortMenuOpen = null;
+}
+
+function showSortMenu(th, col) {
+  // Toggle: if same column menu is open, close it
+  if (sortMenuOpen === col) { closeSortMenu(); return; }
+  closeSortMenu();
+
+  const menu = document.createElement('div');
+  menu.className = 'sort-menu';
+  sortMenuOpen = col;
+
+  currentEmas.forEach(ek => {
+    ['desc', 'asc'].forEach(dir => {
+      const item = document.createElement('div');
+      item.className = 'sort-menu-item';
+      if (sortCol === col && sortEmaKey === ek && sortDir === dir) item.classList.add('active');
+      const arrow = dir === 'desc' ? '▼' : '▲';
+      item.textContent = `${ek} ${arrow}`;
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeSortMenu();
+        sortCol = col; sortDir = dir; sortEmaKey = ek;
+        applySort();
+      });
+      menu.appendChild(item);
+    });
+  });
+
+  // Reset option
+  const reset = document.createElement('div');
+  reset.className = 'sort-menu-item';
+  reset.style.color = '#848e9c';
+  reset.textContent = 'Reset';
+  reset.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeSortMenu();
+    sortCol = null; sortDir = 'desc'; sortEmaKey = null;
+    applySort();
+  });
+  menu.appendChild(reset);
+
+  const rect = th.getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.left = rect.left + 'px';
+  menu.style.top = rect.bottom + 2 + 'px';
+  document.body.appendChild(menu);
+
+  const closeOnClick = (e) => {
+    if (!menu.contains(e.target) && !th.contains(e.target)) {
+      closeSortMenu();
+      document.removeEventListener('click', closeOnClick, true);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', closeOnClick, true), 0);
+}
 
 function getSortValue(r, col) {
   if (col === 'rank') return 0;
@@ -780,19 +860,26 @@ function getSortValue(r, col) {
   if (col === 'listingDate') return r.listingDate ?? 0;
   const d = r.timeframes[col];
   if (!d || d.error) return -Infinity;
-  // Sort by first EMA's deviation percentage
-  const ek = currentEmas[0];
+  const ek = sortEmaKey || currentEmas[0];
   if (ek && d.emas[ek] != null && d.emas[ek] !== 0) {
     return (d.close - d.emas[ek]) / d.emas[ek] * 100;
   }
   return -Infinity;
 }
 
-function doSort(col) {
-  if (col === 'rank') { sortCol = null; sortDir = 'desc'; }
+function doSort(col, th) {
+  // Timeframe column with multiple EMAs → show popup menu
+  if (isTfCol(col) && currentEmas.length > 1) {
+    showSortMenu(th, col);
+    return;
+  }
+  if (col === 'rank') { sortCol = null; sortDir = 'desc'; sortEmaKey = null; }
   else if (sortCol === col) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
-  else { sortCol = col; sortDir = col === 'symbol' ? 'asc' : 'desc'; }
+  else { sortCol = col; sortDir = col === 'symbol' ? 'asc' : 'desc'; sortEmaKey = isTfCol(col) ? currentEmas[0] : null; }
+  applySort();
+}
 
+function applySort() {
   if (sortCol) {
     currentResults.sort((a, b) => {
       let va = getSortValue(a, sortCol), vb = getSortValue(b, sortCol);
@@ -825,14 +912,22 @@ function renderTableHeader() {
 
   let hdr = '<tr>';
   cols.forEach(c => {
-    const arrow = sortCol === c.key ? `<span class="sort-arrow">${sortDir === 'asc' ? '▲' : '▼'}</span>` : '';
+    let arrow = '';
+    if (sortCol === c.key) {
+      const dir = sortDir === 'asc' ? '▲' : '▼';
+      if (isTfCol(c.key) && sortEmaKey) {
+        arrow = `<span class="sort-arrow">${sortEmaKey} ${dir}</span>`;
+      } else {
+        arrow = `<span class="sort-arrow">${dir}</span>`;
+      }
+    }
     hdr += `<th class="sortable" data-col="${c.key}">${c.label}${arrow}</th>`;
   });
   hdr += '</tr>';
   thead.innerHTML = hdr;
 
   thead.querySelectorAll('th.sortable').forEach(th => {
-    th.addEventListener('click', () => doSort(th.dataset.col));
+    th.addEventListener('click', (e) => { e.stopPropagation(); doSort(th.dataset.col, th); });
   });
 }
 
@@ -862,21 +957,14 @@ function renderTableContent() {
       currentEmas.forEach(ek => {
         const val = d.emas[ek];
         const above = d.above[ek];
+        const icon = above ? '&check;' : '&cross;';
         if (val != null && val !== 0) {
           const dev = (d.close - val) / val * 100;
-          const cls = dev >= 0 ? 'chg-pos' : 'chg-neg';
-          cell += `<div class="${cls}"><b>${fmtChg(dev)}</b></div>`;
+          const cls = above ? 'above-true' : 'above-false';
+          cell += `<div class="${cls}"><b>${ek}: ${fmtChg(dev)}</b> ${icon}</div>`;
         } else {
-          cell += `<div>-</div>`;
+          cell += `<div>- ${icon}</div>`;
         }
-      });
-      cell += `<div>Close: ${fmtPrice(d.close)}</div>`;
-      currentEmas.forEach(ek => {
-        const val = d.emas[ek];
-        const above = d.above[ek];
-        const cls = above ? 'above-true' : 'above-false';
-        const icon = above ? '&check;' : '&cross;';
-        cell += `<div class="${cls}">${ek}: ${fmtPrice(val)} ${icon}</div>`;
       });
       cell += '</div>';
       rows += `<td>${cell}</td>`;
@@ -906,6 +994,7 @@ function renderTable(results, timeframes, emas) {
   currentEmas = emas;
   sortCol = null;
   sortDir = 'desc';
+  sortEmaIdx = 0;
 
   const table = document.getElementById('result-table');
   renderTableContent();

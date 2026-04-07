@@ -104,7 +104,7 @@ Top 50 / 100 / 200 / All，按 24h 交易量优先扫描。
 ### 稳定币过滤
 
 自动过滤 60+ 种稳定币（数据来源 CoinGecko stablecoins 分类），包括：
-- USD 锚定法币支持型：USDT、USDC、BUSD、TUSD、FDUSD、PYUSD 等
+- USD 锚定法币支持型：USDT、USDC、BUSD、TUSD、FDUSD、PYUSD、BFUSD 等
 - USD 锚定算法/合成型：DAI、USDS、USDE、USDD、LUSD、GHO 等
 - 收益型稳定币包装：SUSDS、SUSDE、SDAI
 - EUR 锚定：EURC、EURT、AEUR 等
@@ -113,7 +113,7 @@ Top 50 / 100 / 200 / All，按 24h 交易量优先扫描。
 
 ### EMA 偏离百分比
 
-时间周期列中，每个 EMA 条件的第一行显示价格偏离该 EMA 的百分比 `(Close - EMA) / EMA × 100%`，正值绿色、负值红色。点击列头按第一个 EMA 的偏离百分比排序。
+时间周期列中显示每个 EMA 的偏离百分比和条件符合标识（✓/✗），格式如 `EMA21: +3.25% ✓`。多个 EMA 条件时，点击列头弹出菜单选择按哪个 EMA 的偏离百分比排序。
 
 ### 点击复制
 
