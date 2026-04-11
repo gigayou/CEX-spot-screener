@@ -741,8 +741,14 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
     const output = [];
     const tasks = ranked.map(([sym, tickerData]) => async () => {
       const { tfResults, chg7d, chg30d, listingDate } = await scanSymbol(adapter, sym, timeframes, intervalMap, emaPeriods);
-      const tfMatches = timeframes.map(tf => (tfResults[tf] && tfResults[tf].match) || false);
-      const passed = mode === 'all' ? tfMatches.every(Boolean) : tfMatches.some(Boolean);
+      const checks = [];
+      for (const tf of timeframes) {
+        const d = tfResults[tf];
+        for (const p of emaPeriods) {
+          checks.push(d && !d.error && !!d.above[`EMA${p}`]);
+        }
+      }
+      const passed = mode === 'all' ? checks.every(Boolean) : checks.some(Boolean);
       if (!passed) return;
       if (listingFilterDays > 0) {
         if (!listingDate) return;
