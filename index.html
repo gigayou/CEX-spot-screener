@@ -228,6 +228,7 @@ thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
         <label data-tf="3d"><input type="checkbox" name="tf" value="3d"><span>3D</span></label>
         <label data-tf="1w"><input type="checkbox" name="tf" value="1w"><span>1W</span></label>
         <label data-tf="1M"><input type="checkbox" name="tf" value="1M"><span>1M</span></label>
+        <label data-tf="3M"><input type="checkbox" name="tf" value="3M"><span>3M</span></label>
       </div>
     </div>
 
@@ -246,16 +247,6 @@ thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
       <select id="mode-select">
         <option value="all" selected>All periods match (ALL)</option>
         <option value="any">Any period matches (ANY)</option>
-      </select>
-    </div>
-
-    <div class="form-group">
-      <label>&#9783; Scan Range</label>
-      <select id="topn-select">
-        <option value="50">Top 50</option>
-        <option value="100">Top 100</option>
-        <option value="200">Top 200</option>
-        <option value="0" selected>All</option>
       </select>
     </div>
 
@@ -320,17 +311,19 @@ const STABLECOINS = new Set([
 
 /* ── Interval mapping per exchange ──
    String = native interval.
-   Object { base, n } = aggregate: fetch base interval, group every n candles, take last close.
+   Object { base, n, align? } = aggregate:
+   - default: group every n candles, take last close
+   - align:'calendar-quarter': month candles grouped by natural quarter (UTC)
 */
 const INTERVAL_MAP = {
-  binance:  { '4h': '4h', '12h': '12h', '1d': '1d', '3d': '3d', '1w': '1w', '1M': '1M' },
-  okx:      { '4h': '4H', '12h': '12H', '1d': '1D', '3d': '3D', '1w': '1W', '1M': '1M' },
-  bybit:    { '4h': '240', '12h': '720', '1d': 'D', '3d': {base:'D', n:3}, '1w': 'W', '1M': 'M' },
-  coinbase: { '4h': '14400', '12h': {base:'21600', n:2}, '1d': '86400', '3d': {base:'86400', n:3}, '1w': {base:'86400', n:7}, '1M': {base:'86400', n:30} },
+  binance:  { '4h': '4h', '12h': '12h', '1d': '1d', '3d': '3d', '1w': '1w', '1M': '1M', '3M': {base:'1M', n:3, align:'calendar-quarter'} },
+  okx:      { '4h': '4H', '12h': '12H', '1d': '1D', '3d': '3D', '1w': '1W', '1M': '1M', '3M': {base:'1M', n:3, align:'calendar-quarter'} },
+  bybit:    { '4h': '240', '12h': '720', '1d': 'D', '3d': {base:'D', n:3}, '1w': 'W', '1M': 'M', '3M': {base:'M', n:3, align:'calendar-quarter'} },
+  coinbase: { '4h': '14400', '12h': {base:'21600', n:2}, '1d': '86400', '3d': {base:'86400', n:3}, '1w': {base:'86400', n:7}, '1M': {base:'86400', n:30}, '3M': {base:'86400', n:90} },
 };
 
 /* ── TF display names ── */
-const TF_LABELS = { '4h': '4H', '12h': '12H', '1d': '1D', '3d': '3D', '1w': '1W', '1M': '1M' };
+const TF_LABELS = { '4h': '4H', '12h': '12H', '1d': '1D', '3d': '3D', '1w': '1W', '1M': '1M', '3M': '3M' };
 
 /* ── helpers ── */
 function getChecked(name) {
@@ -385,15 +378,42 @@ function aggregateCloses(closes, n) {
   return result;
 }
 
+function aggregateMonthlyToCalendarPeriods(closes, monthsPerPeriod) {
+  if (!closes.length) return [];
+  const periodsPerYear = 12 / monthsPerPeriod;
+  const now = new Date();
+  const endYear = now.getUTCFullYear();
+  const endMonth = now.getUTCMonth();
+  const result = [];
+  let lastBucket = null;
+
+  for (let i = 0; i < closes.length; i++) {
+    const monthsBack = closes.length - 1 - i;
+    const d = new Date(Date.UTC(endYear, endMonth - monthsBack, 1));
+    const bucket = d.getUTCFullYear() * periodsPerYear + Math.floor(d.getUTCMonth() / monthsPerPeriod);
+    if (bucket !== lastBucket) {
+      result.push(closes[i]);
+      lastBucket = bucket;
+    } else {
+      result[result.length - 1] = closes[i];
+    }
+  }
+  return result;
+}
+
 /* ── Fetch klines with optional aggregation ── */
 async function getKlinesAggregated(adapter, symbol, intervalCfg, limit) {
   if (typeof intervalCfg === 'string') {
     return adapter.getKlines(symbol, intervalCfg, limit);
   }
   // Aggregated: fetch more base candles, then group
-  const { base, n } = intervalCfg;
-  const rawCloses = await adapter.getKlines(symbol, base, limit * n);
-  return aggregateCloses(rawCloses, n);
+  const { base, n, align } = intervalCfg;
+  const extraForPartial = align === 'calendar-quarter' ? (n - 1) : 0;
+  const rawCloses = await adapter.getKlines(symbol, base, limit * n + extraForPartial);
+  if (align === 'calendar-quarter') {
+    return aggregateMonthlyToCalendarPeriods(rawCloses, n).slice(-limit);
+  }
+  return aggregateCloses(rawCloses, n).slice(-limit);
 }
 
 /* ── EMA calculation ── */
@@ -729,7 +749,6 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
   const timeframes = getChecked('tf').filter(tf => intervalMap[tf]);
   const emaPeriods = getChecked('ema').map(Number);
   const mode = document.getElementById('mode-select').value;
-  const topN = parseInt(document.getElementById('topn-select').value, 10);
   const listingFilterDays = parseInt(document.getElementById('listing-filter').value, 10);
 
   if (!timeframes.length) { alert('Please select at least one time period'); return; }
@@ -751,8 +770,6 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
     let ranked = Object.entries(tickers)
       .filter(([sym]) => symbolSet.has(sym))
       .sort((a, b) => b[1].vol - a[1].vol);
-
-    if (topN > 0) ranked = ranked.slice(0, topN);
 
     setStatus('loading',
       `<span class="spinner"></span>Scanning ${ranked.length} ${adapter.name} symbols (${CONCURRENCY} parallel)...`);
@@ -1118,7 +1135,6 @@ document.getElementById('btn-reset').addEventListener('click', () => {
   document.querySelectorAll('input[name="tf"]').forEach(c => c.checked = c.value === '1d');
   document.querySelectorAll('input[name="ema"]').forEach(c => c.checked = c.value === '21');
   document.getElementById('mode-select').value = 'all';
-  document.getElementById('topn-select').value = '0';
   document.getElementById('listing-filter').value = '0';
   document.getElementById('status').className = 'status';
   document.getElementById('progress').className = 'progress-bar';
