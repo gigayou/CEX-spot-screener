@@ -171,6 +171,27 @@ thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
 }
 .sort-menu-item:hover { background: #363c45; color: #f0b90b; }
 .sort-menu-item.active { color: #f0b90b; font-weight: 600; }
+.sort-menu-sep { border-top: 1px solid #363c45; margin: 4px 0; }
+.sort-menu-label { padding: 4px 14px; font-size: .72rem; color: #848e9c; text-transform: uppercase; letter-spacing: .5px; }
+.vol-range { display: flex; align-items: center; gap: 6px; padding: 6px 14px; }
+.vol-range input {
+  width: 70px; background: #181c21; color: #eaecef; border: 1px solid #363c45;
+  border-radius: 4px; padding: 4px 6px; font-size: .8rem; text-align: right;
+}
+.vol-range input:focus { outline: none; border-color: #f0b90b; }
+.vol-range select {
+  background: #181c21; color: #eaecef; border: 1px solid #363c45;
+  border-radius: 4px; padding: 4px 2px; font-size: .8rem; cursor: pointer;
+  appearance: none; -webkit-appearance: none; text-align: center; width: 32px;
+}
+.vol-range select:focus { outline: none; border-color: #f0b90b; }
+.vol-range-dash { color: #848e9c; }
+.vol-apply-btn {
+  margin: 4px 14px 6px; padding: 5px 0; width: calc(100% - 28px);
+  background: #f0b90b; color: #0b0e11; border: none; border-radius: 4px;
+  font-size: .8rem; font-weight: 600; cursor: pointer;
+}
+.vol-apply-btn:hover { background: #fcd535; }
 
 /* ── Responsive ── */
 @media (max-width: 640px) {
@@ -795,6 +816,11 @@ function isTfCol(col) {
 }
 
 let sortMenuOpen = null;  // tracks which col's menu is open
+let volMin = 0;
+let volMax = Infinity;
+let allResults = [];  // unfiltered results
+
+const UNIT_MAP = { K: 1e3, M: 1e6, B: 1e9 };
 
 function closeSortMenu() {
   const old = document.querySelector('.sort-menu');
@@ -802,51 +828,18 @@ function closeSortMenu() {
   sortMenuOpen = null;
 }
 
-function showSortMenu(th, col) {
-  // Toggle: if same column menu is open, close it
+function openMenu(th, col, buildFn) {
   if (sortMenuOpen === col) { closeSortMenu(); return; }
   closeSortMenu();
-
   const menu = document.createElement('div');
   menu.className = 'sort-menu';
   sortMenuOpen = col;
-
-  currentEmas.forEach(ek => {
-    ['desc', 'asc'].forEach(dir => {
-      const item = document.createElement('div');
-      item.className = 'sort-menu-item';
-      if (sortCol === col && sortEmaKey === ek && sortDir === dir) item.classList.add('active');
-      const arrow = dir === 'desc' ? '▼' : '▲';
-      item.textContent = `${ek} ${arrow}`;
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        closeSortMenu();
-        sortCol = col; sortDir = dir; sortEmaKey = ek;
-        applySort();
-      });
-      menu.appendChild(item);
-    });
-  });
-
-  // Reset option
-  const reset = document.createElement('div');
-  reset.className = 'sort-menu-item';
-  reset.style.color = '#848e9c';
-  reset.textContent = 'Reset';
-  reset.addEventListener('click', (e) => {
-    e.stopPropagation();
-    closeSortMenu();
-    sortCol = null; sortDir = 'desc'; sortEmaKey = null;
-    applySort();
-  });
-  menu.appendChild(reset);
-
+  buildFn(menu);
   const rect = th.getBoundingClientRect();
   menu.style.position = 'fixed';
   menu.style.left = rect.left + 'px';
   menu.style.top = rect.bottom + 2 + 'px';
   document.body.appendChild(menu);
-
   const closeOnClick = (e) => {
     if (!menu.contains(e.target) && !th.contains(e.target)) {
       closeSortMenu();
@@ -854,6 +847,111 @@ function showSortMenu(th, col) {
     }
   };
   setTimeout(() => document.addEventListener('click', closeOnClick, true), 0);
+}
+
+function addSortItem(menu, label, isActive, onClick) {
+  const item = document.createElement('div');
+  item.className = 'sort-menu-item' + (isActive ? ' active' : '');
+  item.textContent = label;
+  item.addEventListener('click', (e) => { e.stopPropagation(); closeSortMenu(); onClick(); });
+  menu.appendChild(item);
+}
+
+function showVolMenu(th) {
+  openMenu(th, 'volume', (menu) => {
+    // Sort options
+    addSortItem(menu, 'Volume ▼', sortCol === 'volume' && sortDir === 'desc', () => { sortCol = 'volume'; sortDir = 'desc'; applySort(); });
+    addSortItem(menu, 'Volume ▲', sortCol === 'volume' && sortDir === 'asc', () => { sortCol = 'volume'; sortDir = 'asc'; applySort(); });
+
+    // Separator + range filter
+    const sep = document.createElement('div');
+    sep.className = 'sort-menu-sep';
+    menu.appendChild(sep);
+    const lbl = document.createElement('div');
+    lbl.className = 'sort-menu-label';
+    lbl.textContent = 'Volume Range';
+    menu.appendChild(lbl);
+
+    const row = document.createElement('div');
+    row.className = 'vol-range';
+
+    const minInput = document.createElement('input');
+    minInput.type = 'number'; minInput.min = '0'; minInput.placeholder = 'Min';
+    const minU = bestUnit(volMin);
+    if (volMin > 0) minInput.value = volMin / UNIT_MAP[minU];
+
+    const minUnit = document.createElement('select');
+    ['K','M','B'].forEach(u => { const o = document.createElement('option'); o.value = u; o.textContent = u; minUnit.appendChild(o); });
+    minUnit.value = minU;
+
+    const dash = document.createElement('span');
+    dash.className = 'vol-range-dash';
+    dash.textContent = '–';
+
+    const maxInput = document.createElement('input');
+    maxInput.type = 'number'; maxInput.min = '0'; maxInput.placeholder = 'Max';
+    const maxU = bestUnit(volMax);
+    if (volMax < Infinity) maxInput.value = volMax / UNIT_MAP[maxU];
+
+    const maxUnit = document.createElement('select');
+    ['K','M','B'].forEach(u => { const o = document.createElement('option'); o.value = u; o.textContent = u; maxUnit.appendChild(o); });
+    maxUnit.value = maxU;
+
+    row.append(minInput, minUnit, dash, maxInput, maxUnit);
+    menu.appendChild(row);
+
+    const btn = document.createElement('button');
+    btn.className = 'vol-apply-btn';
+    btn.textContent = 'Apply';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const minVal = parseFloat(minInput.value);
+      const maxVal = parseFloat(maxInput.value);
+      volMin = (!isNaN(minVal) && minVal > 0) ? minVal * UNIT_MAP[minUnit.value] : 0;
+      volMax = (!isNaN(maxVal) && maxVal > 0) ? maxVal * UNIT_MAP[maxUnit.value] : Infinity;
+      closeSortMenu();
+      applyVolFilter();
+      applySort();
+    });
+    menu.appendChild(btn);
+
+    // Reset
+    addSortItem(menu, 'Reset Filter', false, () => {
+      volMin = 0; volMax = Infinity;
+      sortCol = null; sortDir = 'desc';
+      applyVolFilter();
+      applySort();
+    });
+  });
+}
+
+function bestUnit(v) {
+  if (v >= 1e9) return 'B';
+  if (v >= 1e6) return 'M';
+  return 'K';
+}
+
+function applyVolFilter() {
+  currentResults = allResults.filter(r => r.quoteVolume >= volMin && r.quoteVolume <= volMax);
+}
+
+function showEmaMenu(th, col) {
+  openMenu(th, col, (menu) => {
+    currentEmas.forEach(ek => {
+      ['desc', 'asc'].forEach(dir => {
+        const arrow = dir === 'desc' ? '▼' : '▲';
+        const isActive = sortCol === col && sortEmaKey === ek && sortDir === dir;
+        addSortItem(menu, `${ek} ${arrow}`, isActive, () => {
+          sortCol = col; sortDir = dir; sortEmaKey = ek;
+          applySort();
+        });
+      });
+    });
+    addSortItem(menu, 'Reset', false, () => {
+      sortCol = null; sortDir = 'desc'; sortEmaKey = null;
+      applySort();
+    });
+  });
 }
 
 function getSortValue(r, col) {
@@ -874,9 +972,11 @@ function getSortValue(r, col) {
 }
 
 function doSort(col, th) {
+  // Volume column → show popup with sort + range filter
+  if (col === 'volume') { showVolMenu(th); return; }
   // Timeframe column with multiple EMAs → show popup menu
   if (isTfCol(col) && currentEmas.length > 1) {
-    showSortMenu(th, col);
+    showEmaMenu(th, col);
     return;
   }
   if (col === 'rank') { sortCol = null; sortDir = 'desc'; sortEmaKey = null; }
@@ -906,7 +1006,7 @@ function renderTableHeader() {
   const cols = [
     { key: 'rank', label: '#' },
     { key: 'symbol', label: 'Symbol' },
-    { key: 'volume', label: '24h Volume (USDT)' },
+    { key: 'volume', label: '24h Vol' + (volMin > 0 || volMax < Infinity ? ' [' + (volMin > 0 ? fmtVol(volMin) : '0') + '-' + (volMax < Infinity ? fmtVol(volMax) : '∞') + ']' : '') },
     { key: 'chg24h', label: '24H' },
     { key: 'chg7d', label: '7D' },
     { key: 'chg30d', label: '30D' },
@@ -995,12 +1095,15 @@ function renderTableContent() {
 }
 
 function renderTable(results, timeframes, emas) {
-  currentResults = results;
+  allResults = results;
   currentTimeframes = timeframes;
   currentEmas = emas;
   sortCol = null;
   sortDir = 'desc';
-  sortEmaIdx = 0;
+  sortEmaKey = null;
+  volMin = 0;
+  volMax = Infinity;
+  currentResults = allResults.slice();
 
   const table = document.getElementById('result-table');
   renderTableContent();
