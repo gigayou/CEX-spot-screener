@@ -313,13 +313,14 @@ const STABLECOINS = new Set([
    String = native interval.
    Object { base, n, align? } = aggregate:
    - default: group every n candles, take last close
+   - align:'calendar-day': day candles grouped by UTC day buckets
    - align:'calendar-quarter': month candles grouped by natural quarter (UTC)
 */
 const INTERVAL_MAP = {
-  binance:  { '4h': '4h', '12h': '12h', '1d': '1d', '3d': '3d', '1w': '1w', '1M': '1M', '3M': {base:'1M', n:3, align:'calendar-quarter'} },
-  okx:      { '4h': '4H', '12h': '12H', '1d': '1D', '3d': '3D', '1w': '1W', '1M': '1M', '3M': {base:'1M', n:3, align:'calendar-quarter'} },
-  bybit:    { '4h': '240', '12h': '720', '1d': 'D', '3d': {base:'D', n:3}, '1w': 'W', '1M': 'M', '3M': {base:'M', n:3, align:'calendar-quarter'} },
-  coinbase: { '4h': '14400', '12h': {base:'21600', n:2}, '1d': '86400', '3d': {base:'86400', n:3}, '1w': {base:'86400', n:7}, '1M': {base:'86400', n:30}, '3M': {base:'86400', n:90} },
+  binance:  { '4h': '4h', '12h': '12h', '1d': '1d', '3d': {base:'1d', n:3, align:'calendar-day'}, '1w': '1w', '1M': '1M', '3M': {base:'1M', n:3, align:'calendar-quarter'} },
+  okx:      { '4h': '4H', '12h': '12H', '1d': '1D', '3d': {base:'1D', n:3, align:'calendar-day'}, '1w': '1W', '1M': '1M', '3M': {base:'1M', n:3, align:'calendar-quarter'} },
+  bybit:    { '4h': '240', '12h': '720', '1d': 'D', '3d': {base:'D', n:3, align:'calendar-day'}, '1w': 'W', '1M': 'M', '3M': {base:'M', n:3, align:'calendar-quarter'} },
+  coinbase: { '4h': '14400', '12h': {base:'21600', n:2}, '1d': '86400', '3d': {base:'86400', n:3, align:'calendar-day'}, '1w': {base:'86400', n:7}, '1M': {base:'86400', n:30}, '3M': {base:'86400', n:90} },
 };
 
 /* ── TF display names ── */
@@ -401,6 +402,31 @@ function aggregateMonthlyToCalendarPeriods(closes, monthsPerPeriod) {
   return result;
 }
 
+function aggregateDailyToCalendarPeriods(closes, daysPerPeriod) {
+  if (!closes.length) return [];
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const now = new Date();
+  const endYear = now.getUTCFullYear();
+  const endMonth = now.getUTCMonth();
+  const endDate = now.getUTCDate();
+  const result = [];
+  let lastBucket = null;
+
+  for (let i = 0; i < closes.length; i++) {
+    const daysBack = closes.length - 1 - i;
+    const d = new Date(Date.UTC(endYear, endMonth, endDate - daysBack));
+    const dayIndex = Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / MS_PER_DAY);
+    const bucket = Math.floor(dayIndex / daysPerPeriod);
+    if (bucket !== lastBucket) {
+      result.push(closes[i]);
+      lastBucket = bucket;
+    } else {
+      result[result.length - 1] = closes[i];
+    }
+  }
+  return result;
+}
+
 /* ── Fetch klines with optional aggregation ── */
 async function getKlinesAggregated(adapter, symbol, intervalCfg, limit) {
   if (typeof intervalCfg === 'string') {
@@ -408,10 +434,13 @@ async function getKlinesAggregated(adapter, symbol, intervalCfg, limit) {
   }
   // Aggregated: fetch more base candles, then group
   const { base, n, align } = intervalCfg;
-  const extraForPartial = align === 'calendar-quarter' ? (n - 1) : 0;
+  const extraForPartial = (align === 'calendar-quarter' || align === 'calendar-day') ? (n - 1) : 0;
   const rawCloses = await adapter.getKlines(symbol, base, limit * n + extraForPartial);
   if (align === 'calendar-quarter') {
     return aggregateMonthlyToCalendarPeriods(rawCloses, n).slice(-limit);
+  }
+  if (align === 'calendar-day') {
+    return aggregateDailyToCalendarPeriods(rawCloses, n).slice(-limit);
   }
   return aggregateCloses(rawCloses, n).slice(-limit);
 }
