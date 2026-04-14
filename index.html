@@ -219,6 +219,14 @@ thead th .sort-arrow { margin-left: 4px; font-size: .7rem; }
       </select>
     </div>
 
+    <div class="form-group" id="binance-market-group">
+      <label>&#9733; Binance Market</label>
+      <select id="binance-market">
+        <option value="spot" selected>Spot</option>
+        <option value="alpha_futures">Alpha + Futures (no spot)</option>
+      </select>
+    </div>
+
     <div class="form-group">
       <label>&#9200; Time Periods</label>
       <div class="checkbox-group" id="tf-group">
@@ -671,6 +679,68 @@ const coinbaseAdapter = {
   },
 };
 
+/* ── Binance Alpha + Futures (excludes spot) ── */
+const binanceAlphaFuturesAdapter = {
+  name: 'Binance (Alpha+Futures)',
+  fapiBase: WORKER_URL + '/binance-fapi',
+  bapiBase: WORKER_URL + '/binance-bapi',
+  spotBase: 'https://api.binance.com',
+  listingDates: {},
+
+  async getSymbols() {
+    const [spotInfo, fapiInfo, alphaList] = await Promise.all([
+      fetchJson(`${this.spotBase}/api/v3/exchangeInfo`),
+      fetchJson(`${this.fapiBase}/fapi/v1/exchangeInfo`),
+      fetchJson(`${this.bapiBase}/defi/v1/public/wallet-direct/buw/wallet/cex/alpha/all/token/list`),
+    ]);
+
+    const spotBases = new Set(
+      spotInfo.symbols
+        .filter(s => s.quoteAsset === 'USDT' && s.status === 'TRADING' && s.isSpotTradingAllowed)
+        .map(s => s.baseAsset)
+    );
+
+    const alphaBases = new Set(
+      ((alphaList && alphaList.data) || []).map(t => (t.symbol || '').toUpperCase()).filter(Boolean)
+    );
+
+    return fapiInfo.symbols
+      .filter(s =>
+        s.quoteAsset === 'USDT' &&
+        s.contractType === 'PERPETUAL' &&
+        s.status === 'TRADING' &&
+        !STABLECOINS.has(s.baseAsset) &&
+        alphaBases.has(s.baseAsset) &&
+        !spotBases.has(s.baseAsset)
+      )
+      .map(s => {
+        if (s.onboardDate) this.listingDates[s.symbol] = parseInt(s.onboardDate);
+        return { symbol: s.symbol, baseAsset: s.baseAsset };
+      });
+  },
+
+  async getTickers() {
+    const data = await fetchJson(`${this.fapiBase}/fapi/v1/ticker/24hr`);
+    const map = {};
+    for (const t of data) {
+      const v = parseFloat(t.quoteVolume);
+      if (!isNaN(v)) map[t.symbol] = { vol: v, chg24h: parseFloat(t.priceChangePercent) || 0 };
+    }
+    return map;
+  },
+
+  async getKlines(symbol, interval, limit) {
+    const data = await fetchJson(`${this.fapiBase}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+    return data.map(k => parseFloat(k[4]));
+  },
+
+  async getListingDate(symbol) {
+    if (this.listingDates[symbol]) return this.listingDates[symbol];
+    const data = await fetchJson(`${this.fapiBase}/fapi/v1/klines?symbol=${symbol}&interval=1d&startTime=0&limit=1`);
+    return (data && data.length) ? data[0][0] : null;
+  },
+};
+
 const ADAPTERS = { binance: binanceAdapter, okx: okxAdapter, bybit: bybitAdapter, coinbase: coinbaseAdapter };
 
 /* All timeframes now supported on all exchanges via aggregation — no need to disable */
@@ -773,7 +843,9 @@ let scanning = false;
 document.getElementById('btn-scan').addEventListener('click', async () => {
   if (scanning) return;
   const exchangeKey = document.getElementById('exchange-select').value;
-  const adapter = ADAPTERS[exchangeKey];
+  const binanceMarket = document.getElementById('binance-market').value;
+  const useAlphaFutures = exchangeKey === 'binance' && binanceMarket === 'alpha_futures';
+  const adapter = useAlphaFutures ? binanceAlphaFuturesAdapter : ADAPTERS[exchangeKey];
   const intervalMap = INTERVAL_MAP[exchangeKey];
   const timeframes = getChecked('tf').filter(tf => intervalMap[tf]);
   const emaPeriods = getChecked('ema').map(Number);
@@ -822,7 +894,8 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
         const daysSinceListing = (now - listingDate) / (1000 * 60 * 60 * 24);
         if (daysSinceListing < 0 || daysSinceListing > listingFilterDays) return;
       }
-      output.push({ symbol: sym, quoteVolume: tickerData.vol, chg24h: tickerData.chg24h, chg7d, chg30d, listingDate, timeframes: tfResults });
+      const displaySymbol = sym.replace(/-/g, '') + (useAlphaFutures ? '.P' : '');
+      output.push({ symbol: sym, displaySymbol, quoteVolume: tickerData.vol, chg24h: tickerData.chg24h, chg7d, chg30d, listingDate, timeframes: tfResults });
     });
 
     await runPool(tasks, CONCURRENCY, (done, total) => {
@@ -1091,7 +1164,7 @@ function renderTableContent() {
   currentResults.forEach((r, i) => {
     rows += '<tr>';
     rows += `<td class="rank">${i + 1}</td>`;
-    const displaySym = r.symbol.replace(/-/g, '');
+    const displaySym = r.displaySymbol || r.symbol.replace(/-/g, '');
     rows += `<td class="sym-cell" data-sym="${displaySym}"><b>${displaySym}</b></td>`;
     rows += `<td class="vol">${fmtVol(r.quoteVolume)}</td>`;
     const chg24hCls = (r.chg24h ?? 0) >= 0 ? 'chg-pos' : 'chg-neg';
@@ -1159,8 +1232,18 @@ function renderTable(results, timeframes, emas) {
 }
 
 /* ── reset ── */
+/* ── Binance market dropdown visibility ── */
+function updateBinanceMarketVisibility() {
+  const isBinance = document.getElementById('exchange-select').value === 'binance';
+  document.getElementById('binance-market-group').style.display = isBinance ? '' : 'none';
+}
+document.getElementById('exchange-select').addEventListener('change', updateBinanceMarketVisibility);
+updateBinanceMarketVisibility();
+
 document.getElementById('btn-reset').addEventListener('click', () => {
   document.getElementById('exchange-select').value = 'binance';
+  document.getElementById('binance-market').value = 'spot';
+  updateBinanceMarketVisibility();
   document.querySelectorAll('input[name="tf"]').forEach(c => c.checked = c.value === '1d');
   document.querySelectorAll('input[name="ema"]').forEach(c => c.checked = c.value === '21');
   document.getElementById('mode-select').value = 'all';
@@ -1189,7 +1272,7 @@ document.getElementById('btn-csv').addEventListener('click', () => {
   csvRows.push(hdr.join(','));
 
   data.results.forEach((r, i) => {
-    const row = [i + 1, exchange, r.symbol.replace(/-/g, ''), r.quoteVolume, r.chg24h ?? '', r.chg7d !== null ? r.chg7d.toFixed(2) : '', r.chg30d !== null ? r.chg30d.toFixed(2) : '', r.listingDate ? fmtDate(r.listingDate) : ''];
+    const row = [i + 1, exchange, r.displaySymbol || r.symbol.replace(/-/g, ''), r.quoteVolume, r.chg24h ?? '', r.chg7d !== null ? r.chg7d.toFixed(2) : '', r.chg30d !== null ? r.chg30d.toFixed(2) : '', r.listingDate ? fmtDate(r.listingDate) : ''];
     timeframes.forEach(tf => {
       const d = r.timeframes[tf];
       if (!d || d.error) { row.push(...emas.map(() => ''), '', ...emas.flatMap(() => ['', '']), ''); return; }

@@ -8,11 +8,13 @@
 
 ```
 浏览器 (GitHub Pages)
-  ├── Binance API（直连，支持 CORS）
+  ├── Binance Spot API（直连，支持 CORS）
   └── Cloudflare Worker（CORS 代理）
         ├── OKX API
         ├── Bybit API
-        └── Coinbase API
+        ├── Coinbase API
+        ├── Binance USDⓈ-M Futures API (fapi)
+        └── Binance Alpha API (bapi)
 ```
 
 ## 部署
@@ -51,10 +53,18 @@ window.WORKER_URL = 'https://your-worker.workers.dev';
 
 | 交易所 | 交易对 | 数据来源 | 上线日期 |
 |--------|--------|----------|----------|
-| Binance | USDT | 直连 API | K 线推算 |
+| Binance (Spot) | USDT | 直连 API | K 线推算 |
+| Binance (Alpha+Futures) | USDT 永续 | Worker 代理 (fapi + bapi) | fapi `onboardDate` 字段 |
 | OKX | USDT | Worker 代理 | instruments `listTime` 字段 |
 | Bybit | USDT | Worker 代理 | K 线推算 |
 | Coinbase | USD | Worker 代理 | K 线推算 |
+
+### Binance 市场筛选
+
+选择 Binance 交易所时，可进一步选择市场类型：
+
+- **Spot** — 默认，扫描 Binance 现货 USDT 交易对
+- **Alpha + Futures (no spot)** — 只扫描同时上线 Binance Alpha **和** USDⓈ-M 永续合约、但**尚未上线现货**的币种。适合寻找"已有合约但未登陆主站现货"的早期标的。该模式下 symbol 显示为 `XXXUSDT.P` 形式，K 线与 24h 成交额均来自合约 fapi。
 
 ### 时间周期支持
 

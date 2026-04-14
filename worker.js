@@ -1,10 +1,12 @@
-// Cloudflare Worker — CORS proxy for OKX / Bybit / Coinbase
+// Cloudflare Worker — CORS proxy for OKX / Bybit / Coinbase / Binance (fapi + bapi)
 // Deploy: paste this code into a Cloudflare Worker (Hello World template)
 
 const ROUTES = {
-  '/okx/':      'https://www.okx.com/api/v5/',
-  '/bybit/':    'https://api.bybit.com/v5/',
-  '/coinbase/': 'https://api.exchange.coinbase.com/',
+  '/okx/':          'https://www.okx.com/api/v5/',
+  '/bybit/':        'https://api.bybit.com/v5/',
+  '/coinbase/':     'https://api.exchange.coinbase.com/',
+  '/binance-fapi/': 'https://fapi.binance.com/',
+  '/binance-bapi/': 'https://www.binance.com/bapi/',
 };
 
 const CORS_HEADERS = {
@@ -43,7 +45,7 @@ export default {
       }
     }
 
-    return new Response(JSON.stringify({ error: 'Not found. Use /okx/, /bybit/, or /coinbase/' }), {
+    return new Response(JSON.stringify({ error: 'Not found. Use /okx/, /bybit/, /coinbase/, /binance-fapi/, or /binance-bapi/' }), {
       status: 404,
       headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
     });
