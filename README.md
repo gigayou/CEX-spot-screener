@@ -76,12 +76,13 @@ window.WORKER_URL = 'https://your-worker.workers.dev';
 | 12H  | 原生    | 原生 | 原生   | 6H×2 聚合 |
 | 1D   | 原生    | 原生 | 原生   | 原生      |
 | 3D   | 1D×3 聚合 | 1D×3 聚合 | 1D×3 聚合 | 1D×3 聚合 |
-| 1W   | 原生    | 原生 | 原生   | 1D×7 聚合 |
-| 1M   | 原生    | 原生 | 原生   | 1D×30 聚合 |
-| 3M   | 1M×3 聚合 | 1M×3 聚合 | 1M×3 聚合 | 1D×90 聚合 |
+| 1W   | 原生    | 原生 | 原生   | 1D 聚合（UTC 自然周） |
+| 1M   | 原生    | 原生 | 原生   | 1D 聚合（UTC 自然月） |
+| 3M   | 1M×3 聚合 | 1M×3 聚合 | 1M×3 聚合 | 1D 聚合（UTC 自然季度） |
 
 说明：`1D×3` 的 `3D` 聚合按 UTC 日历 3 天边界对齐，并保留当前未完结周期的最新收盘价。
 说明：`1M×3` 的 `3M` 聚合按 UTC 自然季度（1/4/7/10 月）对齐，并保留当前未完结季度的最新收盘价。
+说明：Coinbase 的 `1W/1M/3M` 由日线按真实 candle 时间戳分桶，分别对齐 UTC 自然周/自然月/自然季度边界。
 
 ## 功能说明
 
@@ -106,6 +107,7 @@ window.WORKER_URL = 'https://your-worker.workers.dev';
 
 - Binance / Bybit / Coinbase：通过最早 K 线推算
 - OKX：直接使用 instruments API 的 `listTime` 字段
+- Coinbase 性能优化：当 Listing Date 过滤为 `All` 时，不额外请求每个币种的上线日期（减少请求量、降低限流风险）；当启用 Listing Date 过滤（如 Last 30 days）时再计算上线日期。
 
 ### 上线日期筛选
 
@@ -137,7 +139,8 @@ window.WORKER_URL = 'https://your-worker.workers.dev';
 
 ### 其他
 
-- 8 路并发请求 + 实时进度条
+- 并发请求 + 实时进度条（Binance / OKX / Bybit 为 8 路，Coinbase 为 3 路）
+- 扫描完成状态包含 `request-error skipped`，用于显示因请求错误（如 429/5xx）被跳过的币种数量
 - 支持 CSV 导出（含交易所、涨跌幅、上线日期、EMA 偏离百分比数据）
 - 列排序：点击表头升序/降序切换
 - 深色主题，移动端适配
@@ -165,7 +168,8 @@ window.WORKER_URL = 'https://your-worker.workers.dev';
 - 纯 HTML/CSS/JavaScript，无框架依赖
 - Binance 直连（支持 CORS），其他交易所通过 Cloudflare Worker 代理
 - 交易所适配器模式：统一接口，各交易所独立实现
-- K 线聚合：对不支持的时间周期，获取更小周期 K 线后自动聚合（`3M` 的月线聚合按自然季度对齐）
+- K 线聚合：对不支持的时间周期，获取更小周期 K 线后自动聚合（Coinbase `1W/1M/3M` 按真实时间戳对齐 UTC 自然周/月/季度）
 - EMA 计算：标准公式 `k = 2 / (period + 1)`，取最近 80 根 K 线
-- 并发控制：8 路并发 fetch，单个请求失败不影响整体
+- Coinbase 可靠性增强：K 线请求支持重试与分页回溯（缓解 429/5xx 和单次返回上限导致的数据不足）
+- 并发控制：默认 8 路并发 fetch；Coinbase 使用 3 路并发降低限流概率
 - 配置分离：Worker URL 通过 `config.js` 加载，不硬编码在主文件中

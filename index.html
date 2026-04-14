@@ -323,12 +323,13 @@ const STABLECOINS = new Set([
    - default: group every n candles, take last close
    - align:'calendar-day': day candles grouped by UTC day buckets
    - align:'calendar-quarter': month candles grouped by natural quarter (UTC)
+   - align:'calendar-week'/'calendar-month'/'calendar-quarter-from-daily': daily candles aligned by UTC natural calendar boundaries
 */
 const INTERVAL_MAP = {
   binance:  { '4h': '4h', '12h': '12h', '1d': '1d', '3d': {base:'1d', n:3, align:'calendar-day'}, '1w': '1w', '1M': '1M', '3M': {base:'1M', n:3, align:'calendar-quarter'} },
   okx:      { '4h': '4H', '12h': '12H', '1d': '1D', '3d': {base:'1D', n:3, align:'calendar-day'}, '1w': '1W', '1M': '1M', '3M': {base:'1M', n:3, align:'calendar-quarter'} },
   bybit:    { '4h': '240', '12h': '720', '1d': 'D', '3d': {base:'D', n:3, align:'calendar-day'}, '1w': 'W', '1M': 'M', '3M': {base:'M', n:3, align:'calendar-quarter'} },
-  coinbase: { '4h': '14400', '12h': {base:'21600', n:2}, '1d': '86400', '3d': {base:'86400', n:3, align:'calendar-day'}, '1w': {base:'86400', n:7}, '1M': {base:'86400', n:30}, '3M': {base:'86400', n:90} },
+  coinbase: { '4h': '14400', '12h': {base:'21600', n:2}, '1d': '86400', '3d': {base:'86400', n:3, align:'calendar-day'}, '1w': {base:'86400', n:7, align:'calendar-week'}, '1M': {base:'86400', n:31, align:'calendar-month'}, '3M': {base:'86400', n:92, align:'calendar-quarter-from-daily'} },
 };
 
 /* ── TF display names ── */
@@ -373,6 +374,9 @@ function setProgress(pct) {
 function logWarn(context, err) {
   const msg = (err && err.message) ? err.message : String(err);
   console.warn(`[warn] ${context}: ${msg}`);
+}
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /* ── Aggregate small candles into larger period ── */
@@ -435,6 +439,112 @@ function aggregateDailyToCalendarPeriods(closes, daysPerPeriod) {
   return result;
 }
 
+function aggregateTimedToCalendarBuckets(candles, getBucket) {
+  if (!candles.length) return [];
+  const result = [];
+  let lastBucket = null;
+
+  for (const k of candles) {
+    const ts = Number(k.time);
+    const close = Number(k.close);
+    if (!Number.isFinite(ts) || !Number.isFinite(close)) continue;
+    const bucket = getBucket(ts);
+    if (bucket !== lastBucket) {
+      result.push(close);
+      lastBucket = bucket;
+    } else {
+      result[result.length - 1] = close;
+    }
+  }
+  return result;
+}
+
+function aggregateTimedToCalendarWeeks(candles) {
+  return aggregateTimedToCalendarBuckets(candles, ts => {
+    const d = new Date(ts * 1000);
+    const day = d.getUTCDay() || 7; // convert Sunday 0 -> 7
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - (day - 1));
+  });
+}
+
+function aggregateTimedToCalendarMonths(candles) {
+  return aggregateTimedToCalendarBuckets(candles, ts => {
+    const d = new Date(ts * 1000);
+    return d.getUTCFullYear() * 12 + d.getUTCMonth();
+  });
+}
+
+function aggregateTimedToCalendarQuarters(candles) {
+  return aggregateTimedToCalendarBuckets(candles, ts => {
+    const d = new Date(ts * 1000);
+    return d.getUTCFullYear() * 4 + Math.floor(d.getUTCMonth() / 3);
+  });
+}
+
+function aggregateDailyToCalendarWeeks(closes) {
+  if (!closes.length) return [];
+  const now = new Date();
+  const result = [];
+  let lastBucket = null;
+
+  for (let i = 0; i < closes.length; i++) {
+    const daysBack = closes.length - 1 - i;
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysBack));
+    // ISO week: Monday=1..Sunday=7; bucket = date of Monday of that week
+    const day = d.getUTCDay() || 7; // convert Sunday 0 → 7
+    const monday = new Date(d);
+    monday.setUTCDate(d.getUTCDate() - (day - 1));
+    const bucket = monday.getTime();
+    if (bucket !== lastBucket) {
+      result.push(closes[i]);
+      lastBucket = bucket;
+    } else {
+      result[result.length - 1] = closes[i];
+    }
+  }
+  return result;
+}
+
+function aggregateDailyToCalendarMonths(closes) {
+  if (!closes.length) return [];
+  const now = new Date();
+  const result = [];
+  let lastBucket = null;
+
+  for (let i = 0; i < closes.length; i++) {
+    const daysBack = closes.length - 1 - i;
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysBack));
+    const bucket = d.getUTCFullYear() * 12 + d.getUTCMonth();
+    if (bucket !== lastBucket) {
+      result.push(closes[i]);
+      lastBucket = bucket;
+    } else {
+      result[result.length - 1] = closes[i];
+    }
+  }
+  return result;
+}
+
+function aggregateDailyToCalendarQuarters(closes) {
+  if (!closes.length) return [];
+  const now = new Date();
+  const result = [];
+  let lastBucket = null;
+
+  for (let i = 0; i < closes.length; i++) {
+    const daysBack = closes.length - 1 - i;
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysBack));
+    const bucket = d.getUTCFullYear() * 4 + Math.floor(d.getUTCMonth() / 3);
+    if (bucket !== lastBucket) {
+      result.push(closes[i]);
+      lastBucket = bucket;
+    } else {
+      result[result.length - 1] = closes[i];
+    }
+  }
+  return result;
+}
+
 /* ── Fetch klines with optional aggregation ── */
 async function getKlinesAggregated(adapter, symbol, intervalCfg, limit) {
   if (typeof intervalCfg === 'string') {
@@ -442,13 +552,38 @@ async function getKlinesAggregated(adapter, symbol, intervalCfg, limit) {
   }
   // Aggregated: fetch more base candles, then group
   const { base, n, align } = intervalCfg;
-  const extraForPartial = (align === 'calendar-quarter' || align === 'calendar-day') ? (n - 1) : 0;
-  const rawCloses = await adapter.getKlines(symbol, base, limit * n + extraForPartial);
+  const isDailyCalendarAlign = align === 'calendar-week' || align === 'calendar-month' || align === 'calendar-quarter-from-daily';
+  const extraForPartial = (align === 'calendar-quarter' || align === 'calendar-day' || isDailyCalendarAlign) ? (n - 1) : 0;
+  const rawLimit = limit * n + extraForPartial;
+
+  if (isDailyCalendarAlign && typeof adapter.getKlinesWithTime === 'function') {
+    const rawCandles = await adapter.getKlinesWithTime(symbol, base, rawLimit);
+    if (align === 'calendar-week') {
+      return aggregateTimedToCalendarWeeks(rawCandles).slice(-limit);
+    }
+    if (align === 'calendar-month') {
+      return aggregateTimedToCalendarMonths(rawCandles).slice(-limit);
+    }
+    if (align === 'calendar-quarter-from-daily') {
+      return aggregateTimedToCalendarQuarters(rawCandles).slice(-limit);
+    }
+  }
+
+  const rawCloses = await adapter.getKlines(symbol, base, rawLimit);
   if (align === 'calendar-quarter') {
     return aggregateMonthlyToCalendarPeriods(rawCloses, n).slice(-limit);
   }
   if (align === 'calendar-day') {
     return aggregateDailyToCalendarPeriods(rawCloses, n).slice(-limit);
+  }
+  if (align === 'calendar-week') {
+    return aggregateDailyToCalendarWeeks(rawCloses).slice(-limit);
+  }
+  if (align === 'calendar-month') {
+    return aggregateDailyToCalendarMonths(rawCloses).slice(-limit);
+  }
+  if (align === 'calendar-quarter-from-daily') {
+    return aggregateDailyToCalendarQuarters(rawCloses).slice(-limit);
   }
   return aggregateCloses(rawCloses, n).slice(-limit);
 }
@@ -463,10 +598,30 @@ function calcEma(closes, period) {
 }
 
 /* ── Generic fetch ── */
-async function fetchJson(url) {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json();
+async function fetchJson(url, opts = {}) {
+  const retries = opts.retries || 0;
+  const retryDelayMs = opts.retryDelayMs || 250;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(url);
+      if (r.ok) return r.json();
+      const retryable = r.status === 429 || r.status >= 500;
+      if (retryable && attempt < retries) {
+        await sleep(retryDelayMs * (attempt + 1));
+        continue;
+      }
+      throw new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      if (attempt < retries) {
+        await sleep(retryDelayMs * (attempt + 1));
+        continue;
+      }
+      throw e;
+    }
+  }
+
+  throw new Error('fetchJson retry exhausted');
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -621,7 +776,7 @@ const coinbaseAdapter = {
   listingDates: {},
 
   async getSymbols() {
-    const data = await fetchJson(`${this.base}/products`);
+    const data = await fetchJson(`${this.base}/products`, { retries: 2, retryDelayMs: 300 });
     return data
       .filter(p => p.quote_currency === 'USD' && !p.trading_disabled && p.status === 'online'
         && !STABLECOINS.has(p.base_currency))
@@ -630,7 +785,7 @@ const coinbaseAdapter = {
 
   async getTickers() {
     // Coinbase has no bulk ticker — use /products which includes price info
-    const data = await fetchJson(`${this.base}/products`);
+    const data = await fetchJson(`${this.base}/products`, { retries: 2, retryDelayMs: 300 });
     const map = {};
     for (const p of data) {
       if (p.quote_currency !== 'USD') continue;
@@ -638,7 +793,7 @@ const coinbaseAdapter = {
     }
     // Try to get stats from ticker endpoint
     try {
-      const stats = await fetchJson(`${this.base}/products/stats`);
+      const stats = await fetchJson(`${this.base}/products/stats`, { retries: 1, retryDelayMs: 250 });
       if (Array.isArray(stats)) {
         for (const s of stats) {
           if (map[s.id]) {
@@ -656,18 +811,48 @@ const coinbaseAdapter = {
   },
 
   async getKlines(symbol, granularity, limit) {
-    const end = Math.floor(Date.now() / 1000);
-    const start = end - parseInt(granularity) * limit;
-    const data = await fetchJson(`${this.base}/products/${symbol}/candles?granularity=${granularity}&start=${start}&end=${end}`);
-    if (!Array.isArray(data)) return [];
-    // Coinbase returns newest first: [time, low, high, open, close, volume]
-    data.reverse();
-    return data.map(k => parseFloat(k[4]));  // close at index 4
+    const candles = await this.getKlinesWithTime(symbol, granularity, limit);
+    return candles.map(k => k.close);
+  },
+
+  async getKlinesWithTime(symbol, granularity, limit) {
+    const step = parseInt(granularity, 10);
+    if (!Number.isFinite(step) || step <= 0 || limit <= 0) return [];
+    const MAX_BATCH = 300;
+    let end = Math.floor(Date.now() / 1000);
+    let guard = 0;
+    const byTime = new Map();
+
+    while (byTime.size < limit && guard < 200) {
+      const remain = limit - byTime.size;
+      const batch = Math.min(MAX_BATCH, Math.max(remain, 1));
+      const start = Math.max(0, end - step * batch);
+      const data = await fetchJson(`${this.base}/products/${symbol}/candles?granularity=${granularity}&start=${start}&end=${end}`, { retries: 2, retryDelayMs: 350 });
+      if (!Array.isArray(data) || !data.length) break;
+
+      let oldest = end;
+      for (const k of data) {
+        const ts = Number(k[0]);
+        const close = Number(k[4]);
+        if (!Number.isFinite(ts) || !Number.isFinite(close)) continue;
+        byTime.set(ts, close);
+        if (ts < oldest) oldest = ts;
+      }
+
+      if (start === 0 || oldest >= end) break;
+      end = Math.max(0, oldest - 1);
+      guard++;
+    }
+
+    return [...byTime.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .slice(-limit)
+      .map(([time, close]) => ({ time, close }));
   },
 
   async getListingDate(symbol) {
     try {
-      const data = await fetchJson(`${this.base}/products/${symbol}/candles?granularity=86400&start=0&end=${Math.floor(Date.now() / 1000)}`);
+      const data = await fetchJson(`${this.base}/products/${symbol}/candles?granularity=86400&start=0&end=${Math.floor(Date.now() / 1000)}`, { retries: 1, retryDelayMs: 300 });
       if (Array.isArray(data) && data.length) {
         const oldest = data[data.length - 1];
         return oldest[0] * 1000;
@@ -769,7 +954,7 @@ async function runPool(tasks, concurrency, onProgress) {
 }
 
 /* ── Per-symbol scan ── */
-async function scanSymbol(adapter, symbol, timeframes, intervalMap, emaPeriods) {
+async function scanSymbol(adapter, symbol, timeframes, intervalMap, emaPeriods, needListingDate = false) {
   const tfResults = {};
   let chg7d = null;
   let chg30d = null;
@@ -827,10 +1012,12 @@ async function scanSymbol(adapter, symbol, timeframes, intervalMap, emaPeriods) 
   }
 
   let listingDate = null;
-  try {
-    listingDate = await adapter.getListingDate(symbol);
-  } catch (e) {
-    logWarn(`Listing date fetch failed for ${symbol}`, e);
+  if (needListingDate) {
+    try {
+      listingDate = await adapter.getListingDate(symbol);
+    } catch (e) {
+      logWarn(`Listing date fetch failed for ${symbol}`, e);
+    }
   }
 
   return { tfResults, chg7d, chg30d, listingDate };
@@ -851,6 +1038,8 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
   const emaPeriods = getChecked('ema').map(Number);
   const mode = document.getElementById('mode-select').value;
   const listingFilterDays = parseInt(document.getElementById('listing-filter').value, 10);
+  const needListingDate = listingFilterDays > 0 || exchangeKey !== 'coinbase';
+  const scanConcurrency = exchangeKey === 'coinbase' ? 3 : CONCURRENCY;
 
   if (!timeframes.length) { alert('Please select at least one time period'); return; }
   if (!emaPeriods.length) { alert('Please select at least one EMA condition'); return; }
@@ -873,13 +1062,15 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
       .sort((a, b) => b[1].vol - a[1].vol);
 
     setStatus('loading',
-      `<span class="spinner"></span>Scanning ${ranked.length} ${adapter.name} symbols (${CONCURRENCY} parallel)...`);
+      `<span class="spinner"></span>Scanning ${ranked.length} ${adapter.name} symbols (${scanConcurrency} parallel)...`);
     setProgress(0);
 
     const now = Date.now();
     const output = [];
+    let requestErrorSymbols = 0;
     const tasks = ranked.map(([sym, tickerData]) => async () => {
-      const { tfResults, chg7d, chg30d, listingDate } = await scanSymbol(adapter, sym, timeframes, intervalMap, emaPeriods);
+      const { tfResults, chg7d, chg30d, listingDate } = await scanSymbol(adapter, sym, timeframes, intervalMap, emaPeriods, needListingDate);
+      if (timeframes.some(tf => tfResults[tf] && tfResults[tf].error)) requestErrorSymbols++;
       const checks = [];
       for (const tf of timeframes) {
         const d = tfResults[tf];
@@ -898,7 +1089,7 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
       output.push({ symbol: sym, displaySymbol, quoteVolume: tickerData.vol, chg24h: tickerData.chg24h, chg7d, chg30d, listingDate, timeframes: tfResults });
     });
 
-    await runPool(tasks, CONCURRENCY, (done, total) => {
+    await runPool(tasks, scanConcurrency, (done, total) => {
       setProgress(Math.round(done / total * 100));
       setStatus('loading', `<span class="spinner"></span>${adapter.name} scanning... ${done}/${total}`);
     });
@@ -910,7 +1101,7 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
     lastScan = { exchange: exchangeKey, timeframes, emas: emaLabels, data: { results: output, total_scanned: ranked.length, total_matched: output.length, elapsed } };
 
     setStatus('done',
-      `Done! ${adapter.name}: scanned <b>${ranked.length}</b> pairs, matched <b>${output.length}</b>, took <b>${elapsed}s</b>`);
+      `Done! ${adapter.name}: scanned <b>${ranked.length}</b> pairs, matched <b>${output.length}</b>, request-error skipped <b>${requestErrorSymbols}</b>, took <b>${elapsed}s</b>`);
     setProgress(100);
 
     renderTable(output, timeframes, emaLabels);
