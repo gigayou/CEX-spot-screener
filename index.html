@@ -375,6 +375,11 @@ function logWarn(context, err) {
   const msg = (err && err.message) ? err.message : String(err);
   console.warn(`[warn] ${context}: ${msg}`);
 }
+function getHttpStatus(err) {
+  const msg = (err && err.message) ? err.message : String(err);
+  const m = msg.match(/\bHTTP\s+(\d{3})\b/i);
+  return m ? parseInt(m[1], 10) : null;
+}
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -867,26 +872,58 @@ const coinbaseAdapter = {
 /* ── Binance Alpha + Futures (excludes spot) ── */
 const binanceAlphaFuturesAdapter = {
   name: 'Binance (Alpha+Futures)',
+  defaultName: 'Binance (Alpha+Futures)',
   fapiBase: WORKER_URL + '/binance-fapi',
   bapiBase: WORKER_URL + '/binance-bapi',
   spotBase: 'https://api.binance.com',
   listingDates: {},
+  runNotice: '',
+
+  resetRunState() {
+    this.name = this.defaultName;
+    this.runNotice = '';
+    this.listingDates = {};
+  },
+
+  async getAlphaBasesOrNull() {
+    const alphaUrl = `${this.bapiBase}/defi/v1/public/wallet-direct/buw/wallet/cex/alpha/all/token/list`;
+    try {
+      const alphaList = await fetchJson(alphaUrl, { retries: 1, retryDelayMs: 350 });
+      const alphaBases = new Set(
+        ((alphaList && alphaList.data) || []).map(t => (t.symbol || '').toUpperCase()).filter(Boolean)
+      );
+      if (!alphaBases.size) {
+        this.runNotice = 'Alpha token list is empty. Fallback to Futures (no spot), without Alpha filter.';
+        this.name = 'Binance (Futures no-spot fallback)';
+        return null;
+      }
+      return alphaBases;
+    } catch (e) {
+      const status = getHttpStatus(e);
+      if (status === 451) {
+        this.runNotice = 'Alpha token list returned HTTP 451 (region-restricted). Fallback to Futures (no spot), without Alpha filter.';
+      } else {
+        this.runNotice = 'Alpha token list is unavailable. Fallback to Futures (no spot), without Alpha filter.';
+      }
+      this.name = 'Binance (Futures no-spot fallback)';
+      logWarn('Binance Alpha token list fetch failed; using fallback', e);
+      return null;
+    }
+  },
 
   async getSymbols() {
-    const [spotInfo, fapiInfo, alphaList] = await Promise.all([
+    this.resetRunState();
+
+    const [spotInfo, fapiInfo] = await Promise.all([
       fetchJson(`${this.spotBase}/api/v3/exchangeInfo`),
       fetchJson(`${this.fapiBase}/fapi/v1/exchangeInfo`),
-      fetchJson(`${this.bapiBase}/defi/v1/public/wallet-direct/buw/wallet/cex/alpha/all/token/list`),
     ]);
+    const alphaBases = await this.getAlphaBasesOrNull();
 
     const spotBases = new Set(
       spotInfo.symbols
         .filter(s => s.quoteAsset === 'USDT' && s.status === 'TRADING' && s.isSpotTradingAllowed)
         .map(s => s.baseAsset)
-    );
-
-    const alphaBases = new Set(
-      ((alphaList && alphaList.data) || []).map(t => (t.symbol || '').toUpperCase()).filter(Boolean)
     );
 
     return fapiInfo.symbols
@@ -895,13 +932,17 @@ const binanceAlphaFuturesAdapter = {
         s.contractType === 'PERPETUAL' &&
         s.status === 'TRADING' &&
         !STABLECOINS.has(s.baseAsset) &&
-        alphaBases.has(s.baseAsset) &&
+        (!alphaBases || alphaBases.has(s.baseAsset)) &&
         !spotBases.has(s.baseAsset)
       )
       .map(s => {
         if (s.onboardDate) this.listingDates[s.symbol] = parseInt(s.onboardDate);
         return { symbol: s.symbol, baseAsset: s.baseAsset };
       });
+  },
+
+  getRunNotice() {
+    return this.runNotice;
   },
 
   async getTickers() {
@@ -1099,9 +1140,10 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
     const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
     const emaLabels = emaPeriods.map(p => `EMA${p}`);
     lastScan = { exchange: exchangeKey, timeframes, emas: emaLabels, data: { results: output, total_scanned: ranked.length, total_matched: output.length, elapsed } };
+    const runNotice = (typeof adapter.getRunNotice === 'function') ? adapter.getRunNotice() : '';
 
     setStatus('done',
-      `Done! ${adapter.name}: scanned <b>${ranked.length}</b> pairs, matched <b>${output.length}</b>, request-error skipped <b>${requestErrorSymbols}</b>, took <b>${elapsed}s</b>`);
+      `Done! ${adapter.name}: scanned <b>${ranked.length}</b> pairs, matched <b>${output.length}</b>, request-error skipped <b>${requestErrorSymbols}</b>, took <b>${elapsed}s</b>${runNotice ? `<br>${runNotice}` : ''}`);
     setProgress(100);
 
     renderTable(output, timeframes, emaLabels);
