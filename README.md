@@ -65,7 +65,9 @@ window.WORKER_URL = 'https://your-worker.workers.dev';
 
 - **Spot** — 默认，扫描 Binance 现货 USDT 交易对
 - **Alpha + Futures (no spot)** — 只扫描同时上线 Binance Alpha **和** USDⓈ-M 永续合约、但**尚未上线现货**的币种。适合寻找"已有合约但未登陆主站现货"的早期标的。该模式下 symbol 显示为 `XXXUSDT.P` 形式，K 线与 24h 成交额均来自合约 fapi。
-- 若 Binance Alpha token list 接口因地域限制返回 `HTTP 451`（或暂时不可用），会自动降级为 **Futures (no spot)** 扫描，并在状态栏显示提示信息。
+- Alpha+Futures 模式下，`fapi` 请求会先尝试浏览器直连 Binance（`fapi/fapi1/fapi2/fapi3`），失败后自动回退到 Worker 代理。
+- 若 Binance Alpha token list 接口因地域限制返回 `HTTP 403/451`（或暂时不可用），会自动降级为 **Futures (no spot)** 扫描，并在状态栏显示提示信息。
+- 若 Binance Futures API（`fapi`）返回 `HTTP 403/451`，会跳过本次 Alpha+Futures 扫描并在状态栏显示原因，而不是直接报错中断。
 
 ### 时间周期支持
 

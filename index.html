@@ -873,16 +873,95 @@ const coinbaseAdapter = {
 const binanceAlphaFuturesAdapter = {
   name: 'Binance (Alpha+Futures)',
   defaultName: 'Binance (Alpha+Futures)',
-  fapiBase: WORKER_URL + '/binance-fapi',
+  fapiDirectBases: [
+    'https://fapi.binance.com',
+    'https://fapi1.binance.com',
+    'https://fapi2.binance.com',
+    'https://fapi3.binance.com',
+  ],
+  fapiProxyBase: WORKER_URL ? (WORKER_URL + '/binance-fapi') : '',
   bapiBase: WORKER_URL + '/binance-bapi',
   spotBase: 'https://api.binance.com',
   listingDates: {},
   runNotice: '',
+  fapiUnavailable: false,
+  fapiSource: 'auto',    // auto | direct | worker
+  fapiDirectBase: '',
+  workerFallbackNoted: false,
 
   resetRunState() {
     this.name = this.defaultName;
     this.runNotice = '';
     this.listingDates = {};
+    this.fapiUnavailable = false;
+    this.fapiSource = 'auto';
+    this.fapiDirectBase = '';
+    this.workerFallbackNoted = false;
+  },
+
+  addRunNotice(msg) {
+    this.runNotice = this.runNotice ? `${this.runNotice} ${msg}` : msg;
+  },
+
+  markFapiUnavailable(status, err) {
+    if (this.fapiUnavailable) return;
+    this.fapiUnavailable = true;
+    this.name = 'Binance (Alpha+Futures unavailable)';
+    if (status === 403 || status === 451) {
+      this.addRunNotice(`Binance Futures API returned HTTP ${status} (region/IP restricted). Alpha+Futures scan skipped.`);
+    } else {
+      this.addRunNotice('Binance Futures API is unavailable. Alpha+Futures scan skipped.');
+    }
+    if (err) logWarn('Binance fapi unavailable', err);
+  },
+
+  noteWorkerFallback() {
+    if (this.workerFallbackNoted) return;
+    this.workerFallbackNoted = true;
+    this.addRunNotice('Binance Futures direct API failed. Switched to Worker fallback.');
+  },
+
+  async fetchFapiDirect(path, opts = {}) {
+    const pinned = this.fapiDirectBase;
+    const directBases = pinned
+      ? [pinned, ...this.fapiDirectBases.filter(b => b !== pinned)]
+      : [...this.fapiDirectBases];
+    let lastErr = null;
+    for (const base of directBases) {
+      try {
+        const data = await fetchJson(`${base}${path}`, opts);
+        this.fapiSource = 'direct';
+        this.fapiDirectBase = base;
+        return data;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error('Binance fapi direct request failed');
+  },
+
+  async fetchFapiViaWorker(path, opts = {}) {
+    if (!this.fapiProxyBase) {
+      throw new Error('Worker URL is not configured');
+    }
+    const data = await fetchJson(`${this.fapiProxyBase}${path}`, opts);
+    this.fapiSource = 'worker';
+    this.noteWorkerFallback();
+    return data;
+  },
+
+  async fetchFapiJson(path, opts = {}) {
+    if (this.fapiUnavailable) throw new Error('Binance fapi unavailable');
+    if (this.fapiSource === 'worker') {
+      return this.fetchFapiViaWorker(path, opts);
+    }
+
+    try {
+      return await this.fetchFapiDirect(path, opts);
+    } catch (directErr) {
+      if (!this.fapiProxyBase) throw directErr;
+      return this.fetchFapiViaWorker(path, opts);
+    }
   },
 
   async getAlphaBasesOrNull() {
@@ -893,17 +972,17 @@ const binanceAlphaFuturesAdapter = {
         ((alphaList && alphaList.data) || []).map(t => (t.symbol || '').toUpperCase()).filter(Boolean)
       );
       if (!alphaBases.size) {
-        this.runNotice = 'Alpha token list is empty. Fallback to Futures (no spot), without Alpha filter.';
+        this.addRunNotice('Alpha token list is empty. Fallback to Futures (no spot), without Alpha filter.');
         this.name = 'Binance (Futures no-spot fallback)';
         return null;
       }
       return alphaBases;
     } catch (e) {
       const status = getHttpStatus(e);
-      if (status === 451) {
-        this.runNotice = 'Alpha token list returned HTTP 451 (region-restricted). Fallback to Futures (no spot), without Alpha filter.';
+      if (status === 451 || status === 403) {
+        this.addRunNotice(`Alpha token list returned HTTP ${status} (region-restricted). Fallback to Futures (no spot), without Alpha filter.`);
       } else {
-        this.runNotice = 'Alpha token list is unavailable. Fallback to Futures (no spot), without Alpha filter.';
+        this.addRunNotice('Alpha token list is unavailable. Fallback to Futures (no spot), without Alpha filter.');
       }
       this.name = 'Binance (Futures no-spot fallback)';
       logWarn('Binance Alpha token list fetch failed; using fallback', e);
@@ -914,10 +993,18 @@ const binanceAlphaFuturesAdapter = {
   async getSymbols() {
     this.resetRunState();
 
-    const [spotInfo, fapiInfo] = await Promise.all([
-      fetchJson(`${this.spotBase}/api/v3/exchangeInfo`),
-      fetchJson(`${this.fapiBase}/fapi/v1/exchangeInfo`),
-    ]);
+    const spotInfo = await fetchJson(`${this.spotBase}/api/v3/exchangeInfo`);
+    let fapiInfo;
+    try {
+      fapiInfo = await this.fetchFapiJson('/fapi/v1/exchangeInfo', { retries: 1, retryDelayMs: 300 });
+    } catch (e) {
+      const status = getHttpStatus(e);
+      if (status === 403 || status === 451) {
+        this.markFapiUnavailable(status, e);
+        return [];
+      }
+      throw e;
+    }
     const alphaBases = await this.getAlphaBasesOrNull();
 
     const spotBases = new Set(
@@ -946,7 +1033,18 @@ const binanceAlphaFuturesAdapter = {
   },
 
   async getTickers() {
-    const data = await fetchJson(`${this.fapiBase}/fapi/v1/ticker/24hr`);
+    if (this.fapiUnavailable) return {};
+    let data;
+    try {
+      data = await this.fetchFapiJson('/fapi/v1/ticker/24hr', { retries: 1, retryDelayMs: 300 });
+    } catch (e) {
+      const status = getHttpStatus(e);
+      if (status === 403 || status === 451) {
+        this.markFapiUnavailable(status, e);
+        return {};
+      }
+      throw e;
+    }
     const map = {};
     for (const t of data) {
       const v = parseFloat(t.quoteVolume);
@@ -956,13 +1054,15 @@ const binanceAlphaFuturesAdapter = {
   },
 
   async getKlines(symbol, interval, limit) {
-    const data = await fetchJson(`${this.fapiBase}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+    if (this.fapiUnavailable) return [];
+    const data = await this.fetchFapiJson(`/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
     return data.map(k => parseFloat(k[4]));
   },
 
   async getListingDate(symbol) {
+    if (this.fapiUnavailable) return null;
     if (this.listingDates[symbol]) return this.listingDates[symbol];
-    const data = await fetchJson(`${this.fapiBase}/fapi/v1/klines?symbol=${symbol}&interval=1d&startTime=0&limit=1`);
+    const data = await this.fetchFapiJson(`/fapi/v1/klines?symbol=${symbol}&interval=1d&startTime=0&limit=1`);
     return (data && data.length) ? data[0][0] : null;
   },
 };
